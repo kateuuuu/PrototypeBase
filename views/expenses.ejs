@@ -1,0 +1,553 @@
+<% layout('layout') -%>
+
+<style>
+.filter-card { background: #f8f9fa; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+.quick-filter-btn { padding: 0.25rem 0.75rem; font-size: 0.85rem; }
+.quick-filter-btn.active { background-color: var(--primary-color); color: white; }
+.stat-card-small { padding: 1rem; border-radius: 8px; text-align: center; height: 100%; }
+.stat-card-small h5 { margin-bottom: 0.25rem; font-size: 1.1rem; }
+.stat-card-small small { font-size: 0.75rem; color: #666; }
+.category-chart-container { height: 200px; position: relative; }
+.category-row:hover { background-color: #f0f0f0; cursor: pointer; }
+.receipt-icon { color: #28a745; cursor: pointer; }
+.receipt-icon:hover { color: #1e7e34; }
+.amount-col { text-align: right; font-family: 'Courier New', monospace; font-weight: 600; }
+.filtered-total { background: linear-gradient(90deg, #4a2c2a, #6d4c4a); color: white; padding: 0.5rem 1rem; border-radius: 4px; display: inline-block; }
+</style>
+
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <h3><i class="bi bi-wallet2"></i> Expense Tracking</h3>
+  <div class="d-flex gap-2 flex-wrap align-items-center">
+    <% if (userRole === 'admin') { %>
+      <a href="/expenses/categories" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-tags"></i> Manage Categories
+      </a>
+    <% } %>
+    <a href="/expenses/export?<%= Object.entries(filters).filter(([k,v])=>v).map(([k,v])=>k+'='+encodeURIComponent(v)).join('&') %>" class="btn btn-outline-success">
+      <i class="bi bi-download"></i> Export CSV
+    </a>
+    <% if (canAdd) { %>
+      <button class="btn btn-primary" onclick="openAddModal()">
+        <i class="bi bi-plus-circle"></i> Add Expense
+      </button>
+    <% } %>
+  </div>
+</div>
+
+<!-- Filters Section -->
+<div class="filter-card">
+  <form method="GET" action="/expenses" id="filterForm">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small">Search</label>
+        <input type="text" name="search" class="form-control form-control-sm" placeholder="Description, Receipt, Vendor..." value="<%= filters.search || '' %>">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">Category</label>
+        <select name="category" class="form-select form-select-sm">
+          <option value="all">All Categories</option>
+          <% categories.forEach(c => { %>
+            <option value="<%= c.name %>" <%= filters.category === c.name ? 'selected' : '' %>><%= c.name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">From</label>
+        <input type="date" name="from" class="form-control form-control-sm" value="<%= filters.from || '' %>">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">To</label>
+        <input type="date" name="to" class="form-control form-control-sm" value="<%= filters.to || '' %>">
+      </div>
+      <div class="col-md-3">
+        <div class="btn-group btn-group-sm w-100" role="group">
+          <button type="submit" name="quickFilter" value="this_week" class="btn quick-filter-btn <%= filters.quickFilter === 'this_week' ? 'btn-primary' : 'btn-outline-secondary' %>">This Week</button>
+          <button type="submit" name="quickFilter" value="this_month" class="btn quick-filter-btn <%= filters.quickFilter === 'this_month' ? 'btn-primary' : 'btn-outline-secondary' %>">This Month</button>
+          <button type="submit" name="quickFilter" value="last_month" class="btn quick-filter-btn <%= filters.quickFilter === 'last_month' ? 'btn-primary' : 'btn-outline-secondary' %>">Last Month</button>
+        </div>
+      </div>
+    </div>
+    <div class="row mt-2">
+      <div class="col-12 d-flex gap-2">
+        <input type="hidden" name="quickFilter" id="quickFilterHidden" value="<%= filters.quickFilter || 'custom' %>">
+        <button type="submit" class="btn btn-primary btn-sm" onclick="document.getElementById('quickFilterHidden').value='custom'">
+          <i class="bi bi-funnel"></i> Apply Filters
+        </button>
+        <a href="/expenses" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-arrow-counterclockwise"></i> Reset
+        </a>
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="stat-card stat-card-danger">
+      <div class="stat-info">
+        <h4>&#8369;<%= thisMonthTotal.toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) %></h4>
+        <small>Total Expenses This Month</small>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card stat-card-warning">
+      <div class="stat-info">
+        <h4>&#8369;<%= totalExpenses.toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) %></h4>
+        <small>Filtered Total (<%= expenses.length %> items)</small>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card stat-card-info">
+      <div class="stat-info">
+        <h4><%= topCategory ? topCategory.category : 'N/A' %></h4>
+        <small>Top Expense Category<% if(topCategory) { %> (&#8369;<%= topCategory.total.toLocaleString('en-PH', {minimumFractionDigits:2}) %>)<% } %></small>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card stat-card-success">
+      <div class="stat-info">
+        <h4>&#8369;<%= avgPerDay.toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) %></h4>
+        <small>Average Per Day (Filtered)</small>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- By Category Section with Chart -->
+<div class="row g-3 mb-4">
+  <div class="col-md-5">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>By Category</span>
+        <small class="text-muted">Click to filter</small>
+      </div>
+      <div class="card-body p-0">
+        <% if (summary.length === 0) { %>
+          <div class="text-center text-muted py-4">No expenses for this period</div>
+        <% } else { %>
+          <table class="table table-sm mb-0">
+            <tbody>
+              <% summary.forEach(s => { %>
+                <tr class="category-row" onclick="filterByCategory('<%= s.category %>')">
+                  <td>
+                    <span class="badge" style="background-color: <%= getCategoryColor(s.category) %>"><%= s.category %></span>
+                    <span class="text-muted small ms-2">(<%= s.count %>)</span>
+                  </td>
+                  <td class="text-end"><strong>&#8369;<%= s.total.toLocaleString('en-PH', {minimumFractionDigits:2}) %></strong></td>
+                  <td class="text-end text-muted" style="width: 60px;"><%= totalExpenses > 0 ? (s.total/totalExpenses*100).toFixed(1) : 0 %>%</td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        <% } %>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-7">
+    <div class="card h-100">
+      <div class="card-header">Expense Distribution</div>
+      <div class="card-body">
+        <% if (summary.length > 0) { %>
+          <div class="category-chart-container">
+            <canvas id="categoryChart"></canvas>
+          </div>
+        <% } else { %>
+          <div class="text-center text-muted py-5">No data to display</div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Filtered Total Badge -->
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <span class="filtered-total">
+    <i class="bi bi-funnel-fill"></i> Filtered Total: &#8369;<%= totalExpenses.toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) %>
+  </span>
+</div>
+
+<!-- Expenses Table -->
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="expenseTable">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Category</th>
+            <th>Description</th>
+            <th>Vendor/Supplier</th>
+            <th class="text-end">Amount</th>
+            <th>Receipt</th>
+            <th>Linked PO</th>
+            <th>By</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (expenses.length === 0) { %>
+            <tr><td colspan="9" class="text-center text-muted py-4">
+              <i class="bi bi-inbox" style="font-size: 2rem;"></i><br>
+              No expenses found for selected filters.
+            </td></tr>
+          <% } else { %>
+            <% expenses.forEach(e => { %>
+              <tr data-category="<%= e.category %>">
+                <td><%= e.date %></td>
+                <td><span class="badge" style="background-color: <%= getCategoryColor(e.category) %>"><%= e.category %></span></td>
+                <td><%= e.description %></td>
+                <td><%= e.vendor_supplier || '-' %></td>
+                <td class="amount-col">&#8369;<%= e.amount.toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) %></td>
+                <td>
+                  <% if (e.receipt_ref || e.receipt_file) { %>
+                    <span class="receipt-icon" title="<%= e.receipt_ref || e.receipt_file %>" onclick="viewReceipt('<%= e.receipt_ref || e.receipt_file %>')">
+                      <i class="bi bi-receipt-cutoff"></i>
+                    </span>
+                  <% } else { %>
+                    <span class="text-muted">-</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (e.po_reference) { %>
+                    <a href="/purchase-orders?search=<%= e.po_reference %>" class="text-decoration-none">
+                      <i class="bi bi-link-45deg"></i> <%= e.po_reference %>
+                    </a>
+                  <% } else { %>
+                    <span class="text-muted">-</span>
+                  <% } %>
+                </td>
+                <td><%= e.user_name || '-' %></td>
+                <td>
+                  <% if (canEdit) { %>
+                    <button class="btn btn-sm btn-outline-primary" onclick='editExpense(<%- JSON.stringify(e) %>)' title="Edit">
+                      <i class="bi bi-pencil"></i>
+                    </button>
+                  <% } %>
+                  <% if (canDelete) { %>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteExpense(<%= e.id %>)" title="Delete">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  <% } %>
+                </td>
+              </tr>
+            <% }) %>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Expense Modal -->
+<div class="modal fade" id="addExpenseModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 id="expModalTitle"><i class="bi bi-plus-circle"></i> Add Expense</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editExpId">
+        
+        <!-- PO Linking Section -->
+        <div class="mb-3 p-3 bg-light rounded">
+          <label class="form-label"><i class="bi bi-link-45deg"></i> Link to Purchase Order (Optional)</label>
+          <select id="expPOSelect" class="form-select" onchange="onPOSelect(this.value)">
+            <option value="">-- None --</option>
+            <% receivedPOs.forEach(po => { %>
+              <option value="<%= po.po_number %>" data-supplier="<%= po.supplier_name %>" data-amount="<%= po.total_cost %>">
+                <%= po.po_number %> - <%= po.supplier_name %> (&#8369;<%= po.total_cost.toFixed(2) %>)
+              </option>
+            <% }) %>
+          </select>
+          <small class="text-muted">Selecting a PO will auto-fill description, amount, and category</small>
+        </div>
+        
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Category *</label>
+            <select id="expCategory" class="form-select" required>
+              <option value="">Select category...</option>
+              <% categories.forEach(c => { %>
+                <option value="<%= c.name %>"><%= c.name %></option>
+              <% }) %>
+            </select>
+            <div class="invalid-feedback">Please select a category</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Date *</label>
+            <input type="date" id="expDate" class="form-control" value="<%= new Date().toISOString().split('T')[0] %>" required>
+            <div class="invalid-feedback">Please select a date</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Description *</label>
+            <input type="text" id="expDescription" class="form-control" placeholder="e.g., Monthly electricity bill" required>
+            <div class="invalid-feedback">Please enter a description</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Amount *</label>
+            <div class="input-group">
+              <span class="input-group-text">&#8369;</span>
+              <input type="number" id="expAmount" class="form-control" step="0.01" min="0.01" placeholder="0.00" required>
+            </div>
+            <div class="invalid-feedback">Please enter a valid amount</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Vendor/Supplier</label>
+            <input type="text" id="expVendor" class="form-control" placeholder="Optional">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Payment Method</label>
+            <select id="expPaymentMethod" class="form-select">
+              <option value="Cash">Cash</option>
+              <option value="GCash">GCash</option>
+              <option value="Card">Card</option>
+              <option value="Bank Transfer">Bank Transfer</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Receipt Reference</label>
+            <input type="text" id="expReceipt" class="form-control" placeholder="Receipt # or URL">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Receipt File (Mock Upload)</label>
+            <input type="file" id="expReceiptFile" class="form-control" accept="image/*,.pdf" onchange="handleReceiptUpload(this)">
+            <input type="hidden" id="expReceiptFilePath">
+            <small class="text-muted">In prototype, this stores the filename only</small>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveExpense()">
+          <i class="bi bi-check-lg"></i> Save Expense
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Receipt Viewer Modal -->
+<div class="modal fade" id="receiptModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5><i class="bi bi-receipt"></i> Receipt</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <p id="receiptContent" class="mb-0"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%
+function getCategoryColor(category) {
+  const colors = {
+    'Inventory Purchase': '#4a2c2a',
+    'Utilities': '#e67e22',
+    'Rent': '#3498db',
+    'Wages': '#27ae60',
+    'Platform Fees': '#9b59b6',
+    'Marketing': '#e74c3c',
+    'Maintenance': '#1abc9c',
+    'Packaging': '#f39c12',
+    'Misc': '#95a5a6',
+    'Ingredients': '#16a085',
+    'Supplies': '#2980b9',
+    'Equipment': '#8e44ad',
+    'Salary': '#d35400',
+    'Transportation': '#c0392b',
+    'Other': '#7f8c8d'
+  };
+  return colors[category] || '#6c757d';
+}
+%>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Category Chart
+  <% if (summary.length > 0) { %>
+  const categoryColors = {
+    'Inventory Purchase': '#4a2c2a', 'Utilities': '#e67e22', 'Rent': '#3498db',
+    'Wages': '#27ae60', 'Platform Fees': '#9b59b6', 'Marketing': '#e74c3c',
+    'Maintenance': '#1abc9c', 'Packaging': '#f39c12', 'Misc': '#95a5a6',
+    'Ingredients': '#16a085', 'Supplies': '#2980b9', 'Equipment': '#8e44ad',
+    'Salary': '#d35400', 'Transportation': '#c0392b', 'Other': '#7f8c8d'
+  };
+  
+  const labels = <%- JSON.stringify(summary.map(s => s.category)) %>;
+  const data = <%- JSON.stringify(summary.map(s => s.total)) %>;
+  const colors = labels.map(l => categoryColors[l] || '#6c757d');
+  
+  new Chart(document.getElementById('categoryChart'), {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{ data: data, backgroundColor: colors }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              const value = ctx.raw;
+              const total = ctx.dataset.data.reduce((a,b) => a+b, 0);
+              const pct = total > 0 ? ((value/total)*100).toFixed(1) : 0;
+              return ctx.label + ': ₱' + value.toLocaleString('en-PH', {minimumFractionDigits:2}) + ' (' + pct + '%)';
+            }
+          }
+        }
+      },
+      onClick: function(e, elements) {
+        if (elements.length > 0) {
+          const idx = elements[0].index;
+          filterByCategory(labels[idx]);
+        }
+      }
+    }
+  });
+  <% } %>
+});
+
+function filterByCategory(category) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('category', category);
+  url.searchParams.set('quickFilter', 'custom');
+  window.location.href = url.toString();
+}
+
+function openAddModal() {
+  document.getElementById('editExpId').value = '';
+  document.getElementById('expModalTitle').innerHTML = '<i class="bi bi-plus-circle"></i> Add Expense';
+  document.getElementById('expCategory').value = '';
+  document.getElementById('expDescription').value = '';
+  document.getElementById('expAmount').value = '';
+  document.getElementById('expDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('expVendor').value = '';
+  document.getElementById('expPaymentMethod').value = 'Cash';
+  document.getElementById('expReceipt').value = '';
+  document.getElementById('expReceiptFilePath').value = '';
+  document.getElementById('expReceiptFile').value = '';
+  document.getElementById('expPOSelect').value = '';
+  new bootstrap.Modal(document.getElementById('addExpenseModal')).show();
+}
+
+function onPOSelect(poNumber) {
+  if (!poNumber) return;
+  const select = document.getElementById('expPOSelect');
+  const option = select.options[select.selectedIndex];
+  const supplier = option.dataset.supplier;
+  const amount = option.dataset.amount;
+  
+  document.getElementById('expDescription').value = poNumber + ' – ' + supplier;
+  document.getElementById('expAmount').value = parseFloat(amount).toFixed(2);
+  document.getElementById('expCategory').value = 'Inventory Purchase';
+  document.getElementById('expVendor').value = supplier;
+}
+
+function editExpense(e) {
+  document.getElementById('editExpId').value = e.id;
+  document.getElementById('expModalTitle').innerHTML = '<i class="bi bi-pencil"></i> Edit Expense';
+  document.getElementById('expCategory').value = e.category || '';
+  document.getElementById('expDescription').value = e.description || '';
+  document.getElementById('expAmount').value = e.amount || '';
+  document.getElementById('expDate').value = e.date || '';
+  document.getElementById('expVendor').value = e.vendor_supplier || '';
+  document.getElementById('expPaymentMethod').value = e.payment_method || 'Cash';
+  document.getElementById('expReceipt').value = e.receipt_ref || '';
+  document.getElementById('expReceiptFilePath').value = e.receipt_file || '';
+  document.getElementById('expPOSelect').value = e.po_reference || '';
+  new bootstrap.Modal(document.getElementById('addExpenseModal')).show();
+}
+
+async function saveExpense() {
+  const category = document.getElementById('expCategory').value;
+  const description = document.getElementById('expDescription').value.trim();
+  const amount = document.getElementById('expAmount').value;
+  const date = document.getElementById('expDate').value;
+  
+  // Validation
+  let valid = true;
+  if (!category) { document.getElementById('expCategory').classList.add('is-invalid'); valid = false; }
+  else { document.getElementById('expCategory').classList.remove('is-invalid'); }
+  if (!description) { document.getElementById('expDescription').classList.add('is-invalid'); valid = false; }
+  else { document.getElementById('expDescription').classList.remove('is-invalid'); }
+  if (!amount || parseFloat(amount) <= 0) { document.getElementById('expAmount').classList.add('is-invalid'); valid = false; }
+  else { document.getElementById('expAmount').classList.remove('is-invalid'); }
+  if (!date) { document.getElementById('expDate').classList.add('is-invalid'); valid = false; }
+  else { document.getElementById('expDate').classList.remove('is-invalid'); }
+  
+  if (!valid) return;
+  
+  const id = document.getElementById('editExpId').value;
+  const poSelect = document.getElementById('expPOSelect');
+  const data = {
+    category: category,
+    description: description,
+    amount: parseFloat(amount),
+    date: date,
+    vendor_supplier: document.getElementById('expVendor').value.trim() || null,
+    payment_method: document.getElementById('expPaymentMethod').value,
+    receipt_ref: document.getElementById('expReceipt').value.trim() || null,
+    receipt_file: document.getElementById('expReceiptFilePath').value || null,
+    po_reference: poSelect.value || null
+  };
+  
+  const url = id ? '/expenses/' + id : '/expenses';
+  const method = id ? 'PUT' : 'POST';
+  
+  try {
+    const res = await fetch(url, { 
+      method, 
+      headers: { 'Content-Type': 'application/json' }, 
+      body: JSON.stringify(data) 
+    });
+    const result = await res.json();
+    if (res.ok) {
+      location.reload();
+    } else {
+      alert(result.error || 'Failed to save expense');
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+async function deleteExpense(id) {
+  if (!confirm('Are you sure you want to delete this expense?\n\nThis action cannot be undone.')) return;
+  
+  try {
+    const res = await fetch('/expenses/' + id, { method: 'DELETE' });
+    if (res.ok) {
+      location.reload();
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Failed to delete expense');
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+function handleReceiptUpload(input) {
+  if (input.files && input.files[0]) {
+    // In prototype, just store the filename
+    document.getElementById('expReceiptFilePath').value = input.files[0].name;
+  }
+}
+
+function viewReceipt(ref) {
+  document.getElementById('receiptContent').innerHTML = '<strong>Receipt Reference:</strong><br>' + ref;
+  new bootstrap.Modal(document.getElementById('receiptModal')).show();
+}
+</script>

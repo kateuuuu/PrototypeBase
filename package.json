@@ -1,0 +1,22 @@
+{
+  "name": "senorito-cafe-pos",
+  "version": "1.0.0",
+  "description": "Integrated POS and Inventory Management System with Sales Analytics for Señorito Cafe",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "connect-session-knex": "^4.0.0",
+    "bcryptjs": "^2.4.3",
+    "csv-stringify": "^6.4.0",
+    "ejs": "^3.1.9",
+    "ejs-mate": "^4.0.0",
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "multer": "^1.4.5-lts.1",
+    "qrcode": "^1.5.3"
+  }
+}

@@ -1,0 +1,591 @@
+<% layout('layout') -%>
+
+<style>
+.currency-col { text-align: right; font-variant-numeric: tabular-nums; }
+.shift-table th.currency-col { text-align: right; }
+.diff-over { color: #0d6efd; font-weight: 600; }
+.diff-short { color: #dc3545; font-weight: 600; }
+.diff-balanced { color: #198754; font-weight: 600; }
+.timestamp-cell { white-space: nowrap; cursor: help; }
+.duration-cell { font-variant-numeric: tabular-nums; }
+</style>
+
+<%
+// Date/time formatting helpers
+const formatDateTime = (dateStr) => {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[d.getMonth()];
+  const day = d.getDate();
+  const year = d.getFullYear();
+  let hours = d.getHours();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  const mins = d.getMinutes().toString().padStart(2, '0');
+  return `${month} ${day}, ${year} • ${hours}:${mins} ${ampm}`;
+};
+
+const formatFullTimestamp = (dateStr) => {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[d.getMonth()];
+  const day = d.getDate();
+  const year = d.getFullYear();
+  let hours = d.getHours();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  const mins = d.getMinutes().toString().padStart(2, '0');
+  const secs = d.getSeconds().toString().padStart(2, '0');
+  return `${month} ${day}, ${year} at ${hours}:${mins}:${secs} ${ampm}`;
+};
+
+const formatDuration = (startStr, endStr) => {
+  if (!startStr || !endStr) return 'Ongoing';
+  const dur = Math.round((new Date(endStr) - new Date(startStr)) / 60000);
+  const h = Math.floor(dur / 60);
+  const m = dur % 60;
+  return `${h}h ${m.toString().padStart(2, '0')}m`;
+};
+
+// Currency formatter
+const fmtCurrency = (val) => {
+  if (val == null) return '-';
+  return '₱' + Number(val).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+%>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-alarm"></i> Shift Management</h2>
+  <% if (!myOpenShift) { %>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#startShiftModal">
+    <i class="bi bi-play-circle"></i> Start Shift
+  </button>
+  <% } else { %>
+  <button class="btn btn-warning" onclick="endShift(<%= myOpenShift.id %>)">
+    <i class="bi bi-stop-circle"></i> End Current Shift
+  </button>
+  <% } %>
+</div>
+
+<div class="card">
+  <div class="card-body table-responsive">
+    <table class="table table-hover align-middle shift-table">
+      <thead>
+        <tr>
+          <th>Shift ID</th>
+          <th>Employee</th>
+          <th>Start Time</th>
+          <th>End Time</th>
+          <th>Duration</th>
+          <th class="text-center">Orders</th>
+          <th class="currency-col">Total Sales</th>
+          <th class="currency-col">Starting Cash</th>
+          <th class="currency-col">Cash Sales</th>
+          <th class="currency-col">Expected Cash</th>
+          <th class="currency-col">Actual Ending</th>
+          <th class="currency-col">Difference</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% shifts.forEach(shift => { 
+          const startingCash = shift.starting_cash || 0;
+          const cashSales = shift.cash_sales || 0;
+          const expectedCash = startingCash + cashSales;
+          const actualEnding = shift.ending_cash;
+          const difference = actualEnding != null ? actualEnding - expectedCash : null;
+        %>
+        <tr>
+          <td><strong>#<%= shift.id %></strong></td>
+          <td><%= shift.user_name %></td>
+          <td class="timestamp-cell" title="<%= formatFullTimestamp(shift.start_time) %>">
+            <%= formatDateTime(shift.start_time) %>
+          </td>
+          <td class="timestamp-cell" title="<%= shift.end_time ? formatFullTimestamp(shift.end_time) : '' %>">
+            <%= shift.end_time ? formatDateTime(shift.end_time) : '-' %>
+          </td>
+          <td class="duration-cell">
+            <% if (shift.end_time) { %>
+              <%= formatDuration(shift.start_time, shift.end_time) %>
+            <% } else { %>
+              <span class="badge bg-success">Ongoing</span>
+            <% } %>
+          </td>
+          <td class="text-center"><%= shift.order_count %></td>
+          <td class="currency-col"><%- fmtCurrency(shift.shift_sales || 0) %></td>
+          <td class="currency-col"><%- fmtCurrency(startingCash) %></td>
+          <td class="currency-col"><%- fmtCurrency(cashSales) %></td>
+          <td class="currency-col"><%= shift.status === 'closed' ? fmtCurrency(expectedCash) : '-' %></td>
+          <td class="currency-col"><%= actualEnding != null ? fmtCurrency(actualEnding) : '-' %></td>
+          <td class="currency-col">
+            <% if (difference !== null) { %>
+              <% if (difference > 0) { %>
+                <span class="diff-over">+<%- fmtCurrency(difference) %> (Over)</span>
+              <% } else if (difference < 0) { %>
+                <span class="diff-short"><%- fmtCurrency(difference) %> (Short)</span>
+              <% } else { %>
+                <span class="diff-balanced"><%- fmtCurrency(0) %></span>
+              <% } %>
+            <% } else { %>-<% } %>
+          </td>
+          <td>
+            <span class="badge bg-<%= shift.status === 'open' ? 'success' : 'secondary' %>">
+              <%= shift.status %>
+            </span>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary" onclick="viewSummary(<%= shift.id %>)">
+              <i class="bi bi-eye"></i> Summary
+            </button>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Start Shift Modal -->
+<div class="modal fade" id="startShiftModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header"><h5>Start Shift</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <label class="form-label">Starting Cash</label>
+        <div class="input-group"><span class="input-group-text">₱</span>
+          <input type="number" id="startingCash" class="form-control" value="<%= defaultStartingCash || 0 %>" min="0" step="0.01">
+        </div>
+        <% if (defaultStartingCash > 0) { %>
+        <small class="text-muted">Defaulted from last shift's ending cash</small>
+        <% } %>
+        <div id="startingCashError" class="invalid-feedback">Starting cash cannot be negative</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="startShift()">Start Shift</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- End Shift Modal -->
+<div class="modal fade" id="endShiftModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5>End Shift</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <!-- Cash Summary Section -->
+        <div class="card bg-light mb-3">
+          <div class="card-body">
+            <h6 class="card-title"><i class="bi bi-cash-stack"></i> Cash Reconciliation</h6>
+            <table class="table table-sm table-borderless mb-0">
+              <tbody>
+                <tr>
+                  <td>Starting Cash</td>
+                  <td class="text-end fw-bold" id="endStartingCash">₱0.00</td>
+                </tr>
+                <tr>
+                  <td>+ Cash Sales (cash payments only)</td>
+                  <td class="text-end fw-bold" id="endCashSales">₱0.00</td>
+                </tr>
+                <tr class="border-top">
+                  <td class="fw-bold">= Expected Cash</td>
+                  <td class="text-end fw-bold text-primary" id="endExpectedCash">₱0.00</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <div class="mb-3">
+          <label class="form-label fw-bold">Actual Ending Cash <span class="text-danger">*</span></label>
+          <div class="input-group">
+            <span class="input-group-text">₱</span>
+            <input type="number" id="endingCash" class="form-control" value="" min="0" step="0.01" placeholder="Count and enter actual cash" required>
+          </div>
+          <div class="invalid-feedback" id="endingCashError">Please enter the actual ending cash amount.</div>
+        </div>
+        
+        <!-- Difference Display -->
+        <div id="differenceSection" class="mb-3" style="display: none;">
+          <div class="alert mb-2" id="differenceAlert">
+            <div class="d-flex justify-content-between align-items-center">
+              <span>Cash Difference:</span>
+              <span id="cashDifference" class="fw-bold fs-5"></span>
+            </div>
+            <small id="differenceLabel" class="d-block mt-1"></small>
+          </div>
+          <div id="differenceReasonSection" style="display: none;">
+            <label class="form-label">Reason for Difference <span class="text-danger">*</span></label>
+            <textarea id="differenceReason" class="form-control" rows="2" placeholder="Please explain the cash difference..." required></textarea>
+            <div class="invalid-feedback" id="reasonError">Please provide a reason for the cash difference.</div>
+          </div>
+        </div>
+        
+        <div class="mb-3">
+          <label class="form-label">Additional Notes</label>
+          <textarea id="shiftNotes" class="form-control" rows="2" placeholder="Optional notes about the shift..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-warning" id="endShiftBtn" disabled>
+          <i class="bi bi-stop-circle"></i> End Shift
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Shift Summary Modal -->
+<div class="modal fade" id="summaryModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5><i class="bi bi-clipboard-data"></i> Shift Summary</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="summaryBody">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Currency formatter
+function formatCurrency(val) {
+  if (val == null || isNaN(val)) return '₱0.00';
+  return '₱' + Number(val).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Date/time formatters for JavaScript
+function formatDateTime(dateStr) {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[d.getMonth()];
+  const day = d.getDate();
+  const year = d.getFullYear();
+  let hours = d.getHours();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  const mins = d.getMinutes().toString().padStart(2, '0');
+  return `${month} ${day}, ${year} • ${hours}:${mins} ${ampm}`;
+}
+
+function formatFullTimestamp(dateStr) {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[d.getMonth()];
+  const day = d.getDate();
+  const year = d.getFullYear();
+  let hours = d.getHours();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  const mins = d.getMinutes().toString().padStart(2, '0');
+  const secs = d.getSeconds().toString().padStart(2, '0');
+  return `${month} ${day}, ${year} at ${hours}:${mins}:${secs} ${ampm}`;
+}
+
+function formatDuration(startStr, endStr) {
+  if (!startStr || !endStr) return 'Ongoing';
+  const dur = Math.round((new Date(endStr) - new Date(startStr)) / 60000);
+  const h = Math.floor(dur / 60);
+  const m = dur % 60;
+  return `${h}h ${m.toString().padStart(2, '0')}m`;
+}
+
+function formatTime12h(dateStr) {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  let hours = d.getHours();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  const mins = d.getMinutes().toString().padStart(2, '0');
+  return `${hours}:${mins} ${ampm}`;
+}
+
+async function startShift() {
+  const startingCashInput = document.getElementById('startingCash');
+  const starting_cash = parseFloat(startingCashInput.value) || 0;
+  
+  if (starting_cash < 0) {
+    startingCashInput.classList.add('is-invalid');
+    return;
+  }
+  startingCashInput.classList.remove('is-invalid');
+  
+  const res = await fetch('/shifts/start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ starting_cash }) });
+  const data = await res.json();
+  if (data.success) location.reload();
+  else alert(data.error);
+}
+
+let endShiftId = null;
+let endShiftExpectedCash = 0;
+
+async function endShift(id) {
+  endShiftId = id;
+  
+  // Fetch shift info for cash reconciliation display
+  try {
+    const res = await fetch('/shifts/info/' + id);
+    const data = await res.json();
+    
+    document.getElementById('endStartingCash').textContent = formatCurrency(data.shift.starting_cash || 0);
+    document.getElementById('endCashSales').textContent = formatCurrency(data.cash_sales || 0);
+    document.getElementById('endExpectedCash').textContent = formatCurrency(data.expected_cash);
+    endShiftExpectedCash = data.expected_cash;
+    
+    // Clear previous values
+    document.getElementById('endingCash').value = '';
+    document.getElementById('endingCash').classList.remove('is-invalid');
+    document.getElementById('shiftNotes').value = '';
+    document.getElementById('differenceReason').value = '';
+    document.getElementById('differenceReason').classList.remove('is-invalid');
+    document.getElementById('differenceSection').style.display = 'none';
+    document.getElementById('endShiftBtn').disabled = true;
+  } catch (err) {
+    console.error('Error fetching shift info:', err);
+  }
+  
+  new bootstrap.Modal(document.getElementById('endShiftModal')).show();
+}
+
+// Handle ending cash input to calculate difference
+document.getElementById('endingCash').addEventListener('input', function() {
+  const actualCash = parseFloat(this.value);
+  const differenceSection = document.getElementById('differenceSection');
+  const differenceReasonSection = document.getElementById('differenceReasonSection');
+  const differenceAlert = document.getElementById('differenceAlert');
+  const cashDifferenceEl = document.getElementById('cashDifference');
+  const differenceLabel = document.getElementById('differenceLabel');
+  const endShiftBtn = document.getElementById('endShiftBtn');
+  
+  this.classList.remove('is-invalid');
+  
+  if (isNaN(actualCash) || this.value === '') {
+    differenceSection.style.display = 'none';
+    endShiftBtn.disabled = true;
+    return;
+  }
+  
+  if (actualCash < 0) {
+    this.classList.add('is-invalid');
+    differenceSection.style.display = 'none';
+    endShiftBtn.disabled = true;
+    return;
+  }
+  
+  const diff = actualCash - endShiftExpectedCash;
+  differenceSection.style.display = 'block';
+  
+  // Update difference display with clear Over/Short labeling
+  if (diff === 0) {
+    differenceAlert.className = 'alert alert-success mb-2';
+    cashDifferenceEl.textContent = formatCurrency(0);
+    differenceLabel.textContent = 'Cash drawer is balanced.';
+    differenceLabel.className = 'd-block mt-1 text-success';
+    differenceReasonSection.style.display = 'none';
+    endShiftBtn.disabled = false;
+  } else if (diff > 0) {
+    differenceAlert.className = 'alert alert-info mb-2';
+    cashDifferenceEl.textContent = '+' + formatCurrency(diff);
+    differenceLabel.textContent = 'OVER: You have more cash than expected.';
+    differenceLabel.className = 'd-block mt-1 text-info';
+    differenceReasonSection.style.display = 'block';
+    validateReasonField();
+  } else {
+    differenceAlert.className = 'alert alert-danger mb-2';
+    cashDifferenceEl.textContent = '-' + formatCurrency(Math.abs(diff));
+    differenceLabel.textContent = 'SHORT: You have less cash than expected.';
+    differenceLabel.className = 'd-block mt-1 text-danger';
+    differenceReasonSection.style.display = 'block';
+    validateReasonField();
+  }
+});
+
+// Validate reason field when there's a difference
+document.getElementById('differenceReason').addEventListener('input', validateReasonField);
+
+function validateReasonField() {
+  const endingCash = parseFloat(document.getElementById('endingCash').value);
+  const diff = endingCash - endShiftExpectedCash;
+  const reason = document.getElementById('differenceReason').value.trim();
+  const endShiftBtn = document.getElementById('endShiftBtn');
+  const reasonField = document.getElementById('differenceReason');
+  
+  if (diff !== 0) {
+    if (reason.length === 0) {
+      endShiftBtn.disabled = true;
+      reasonField.classList.add('is-invalid');
+    } else {
+      endShiftBtn.disabled = false;
+      reasonField.classList.remove('is-invalid');
+    }
+  } else {
+    endShiftBtn.disabled = false;
+  }
+}
+
+document.getElementById('endShiftBtn').addEventListener('click', async () => {
+  const endingCashInput = document.getElementById('endingCash');
+  const ending_cash = parseFloat(endingCashInput.value);
+  const notes = document.getElementById('shiftNotes').value;
+  const difference_reason = document.getElementById('differenceReason').value.trim();
+  
+  // Validate ending cash is required
+  if (isNaN(ending_cash) || endingCashInput.value === '') {
+    endingCashInput.classList.add('is-invalid');
+    endingCashInput.focus();
+    return;
+  }
+  
+  if (ending_cash < 0) {
+    endingCashInput.classList.add('is-invalid');
+    alert('Ending cash cannot be negative.');
+    return;
+  }
+  
+  const diff = ending_cash - endShiftExpectedCash;
+  
+  // Require reason if there's a difference
+  if (diff !== 0 && !difference_reason) {
+    document.getElementById('differenceReason').classList.add('is-invalid');
+    document.getElementById('differenceReason').focus();
+    alert('Please provide a reason for the cash difference before closing the shift.');
+    return;
+  }
+  
+  const res = await fetch('/shifts/end/' + endShiftId, { 
+    method: 'POST', 
+    headers: {'Content-Type': 'application/json'}, 
+    body: JSON.stringify({ ending_cash, notes, difference_reason }) 
+  });
+  const data = await res.json();
+  
+  if (data.success) {
+    // Show end-of-shift summary
+    showEndShiftSummary(data.summary);
+  } else {
+    alert(data.error);
+  }
+});
+
+function showEndShiftSummary(summary) {
+  const diff = summary.cash_difference || 0;
+  let diffLabel = 'Balanced';
+  let diffClass = 'bg-success text-white';
+  if (diff > 0) { diffLabel = 'Over'; diffClass = 'bg-info'; }
+  else if (diff < 0) { diffLabel = 'Short'; diffClass = 'bg-danger text-white'; }
+  
+  let html = '<div class="text-center mb-3"><i class="bi bi-check-circle text-success" style="font-size: 3rem;"></i><h4>Shift Ended Successfully</h4></div>';
+  html += '<div class="row g-2">';
+  html += '<div class="col-6"><div class="card bg-light"><div class="card-body text-center"><small class="text-muted">Total Sales</small><div class="fs-5 fw-bold">' + formatCurrency(summary.total_sales) + '</div></div></div></div>';
+  html += '<div class="col-6"><div class="card bg-light"><div class="card-body text-center"><small class="text-muted">Orders</small><div class="fs-5 fw-bold">' + (summary.total_orders||0) + '</div></div></div></div>';
+  html += '<div class="col-6"><div class="card bg-light"><div class="card-body text-center"><small class="text-muted">Expected Cash</small><div class="fs-5 fw-bold">' + formatCurrency(summary.expected_cash) + '</div></div></div></div>';
+  html += '<div class="col-6"><div class="card ' + diffClass + '"><div class="card-body text-center"><small>Difference (' + diffLabel + ')</small><div class="fs-5 fw-bold">' + (diff >= 0 ? '+' : '-') + formatCurrency(Math.abs(diff)) + '</div></div></div></div>';
+  html += '</div>';
+  
+  // Payment breakdown
+  html += '<div class="card mt-3"><div class="card-body"><h6>Payment Breakdown</h6>';
+  html += '<div class="row text-center">';
+  html += '<div class="col-3"><small class="text-muted">Cash</small><div class="fw-bold">' + formatCurrency(summary.cash_sales) + '</div></div>';
+  html += '<div class="col-3"><small class="text-muted">GCash</small><div class="fw-bold">' + formatCurrency(summary.gcash_sales) + '</div></div>';
+  html += '<div class="col-3"><small class="text-muted">Card</small><div class="fw-bold">' + formatCurrency(summary.card_sales) + '</div></div>';
+  html += '<div class="col-3"><small class="text-muted">Platform</small><div class="fw-bold">' + formatCurrency(summary.platform_sales) + '</div></div>';
+  html += '</div></div></div>';
+  
+  html += '<div class="text-center mt-3"><button class="btn btn-primary" onclick="location.reload()">OK</button></div>';
+  
+  document.querySelector('#endShiftModal .modal-body').innerHTML = html;
+  document.querySelector('#endShiftModal .modal-footer').style.display = 'none';
+}
+
+async function viewSummary(id) {
+  const modal = new bootstrap.Modal(document.getElementById('summaryModal'));
+  modal.show();
+  const res = await fetch('/shifts/summary/' + id);
+  const data = await res.json();
+  const s = data.summary;
+  const shift = data.shift;
+  const startCash = shift.starting_cash || 0;
+  const cashSales = s.cash_sales || 0;
+  const expectedCash = startCash + cashSales;
+  const actualEnd = shift.ending_cash || 0;
+  const diff = actualEnd - expectedCash;
+  
+  let diffLabel = 'Balanced';
+  let diffClass = '';
+  if (diff > 0) { diffLabel = 'Over'; diffClass = 'text-info'; }
+  else if (diff < 0) { diffLabel = 'Short'; diffClass = 'text-danger'; }
+  
+  let html = '<div class="row g-3">';
+  
+  // Shift Details Card
+  html += '<div class="col-12"><div class="card bg-light"><div class="card-body">';
+  html += '<h6><i class="bi bi-clock-history"></i> Shift Details</h6>';
+  html += '<div class="row">';
+  html += '<div class="col-md-4"><small class="text-muted">Start Time</small><div title="' + formatFullTimestamp(shift.start_time) + '">' + formatFullTimestamp(shift.start_time) + '</div></div>';
+  html += '<div class="col-md-4"><small class="text-muted">End Time</small><div title="' + formatFullTimestamp(shift.end_time) + '">' + formatFullTimestamp(shift.end_time) + '</div></div>';
+  html += '<div class="col-md-4"><small class="text-muted">Duration</small><div>' + formatDuration(shift.start_time, shift.end_time) + '</div></div>';
+  html += '</div></div></div></div>';
+  
+  // Payment Breakdown Card
+  html += '<div class="col-md-6"><div class="card"><div class="card-body">';
+  html += '<h6><i class="bi bi-wallet2"></i> Payment Breakdown</h6>';
+  html += '<table class="table table-sm"><tbody>';
+  html += '<tr><td>Cash Sales</td><td class="text-end">' + formatCurrency(cashSales) + '</td></tr>';
+  html += '<tr><td>GCash Sales</td><td class="text-end">' + formatCurrency(s.gcash_sales) + '</td></tr>';
+  html += '<tr><td>Card Sales</td><td class="text-end">' + formatCurrency(s.card_sales) + '</td></tr>';
+  html += '<tr><td>Platform (Grab/Foodpanda)</td><td class="text-end">' + formatCurrency(s.platform_sales) + '</td></tr>';
+  html += '<tr class="fw-bold border-top"><td>Total Sales</td><td class="text-end">' + formatCurrency(s.total_sales) + '</td></tr>';
+  html += '<tr><td>Total Orders</td><td class="text-end">' + (s.total_orders||0) + '</td></tr>';
+  html += '<tr><td>Total Discounts</td><td class="text-end text-danger">-' + formatCurrency(s.total_discounts) + '</td></tr>';
+  html += '</tbody></table></div></div></div>';
+  
+  // Cash Drawer Card
+  html += '<div class="col-md-6"><div class="card"><div class="card-body">';
+  html += '<h6><i class="bi bi-cash-stack"></i> Cash Drawer</h6>';
+  html += '<table class="table table-sm"><tbody>';
+  html += '<tr><td>Starting Cash</td><td class="text-end">' + formatCurrency(startCash) + '</td></tr>';
+  html += '<tr><td>+ Cash Sales</td><td class="text-end">' + formatCurrency(cashSales) + '</td></tr>';
+  html += '<tr class="fw-bold border-top"><td>= Expected Cash</td><td class="text-end">' + formatCurrency(expectedCash) + '</td></tr>';
+  html += '<tr><td>Actual Ending Cash</td><td class="text-end">' + formatCurrency(actualEnd) + '</td></tr>';
+  html += '<tr class="fw-bold ' + diffClass + '"><td>Difference (' + diffLabel + ')</td><td class="text-end">' + (diff >= 0 ? '+' : '-') + formatCurrency(Math.abs(diff)) + '</td></tr>';
+  html += '</tbody></table></div></div></div>';
+  
+  // Order Source Breakdown
+  html += '<div class="col-12"><div class="card"><div class="card-body">';
+  html += '<h6><i class="bi bi-diagram-3"></i> Order Sources</h6>';
+  html += '<div class="row text-center">';
+  html += '<div class="col-4"><span class="badge bg-primary mb-1">In-Store</span><div class="fw-bold">' + formatCurrency(s.instore_sales) + '</div><small class="text-muted">' + (s.instore_count||0) + ' orders</small></div>';
+  html += '<div class="col-4"><span class="badge bg-success mb-1">Grab</span><div class="fw-bold">' + formatCurrency(s.grab_sales) + '</div><small class="text-muted">' + (s.grab_count||0) + ' orders</small></div>';
+  html += '<div class="col-4"><span class="badge bg-danger mb-1">Foodpanda</span><div class="fw-bold">' + formatCurrency(s.foodpanda_sales) + '</div><small class="text-muted">' + (s.foodpanda_count||0) + ' orders</small></div>';
+  html += '</div></div></div></div>';
+  
+  // Top items
+  if (data.topItems && data.topItems.length) {
+    html += '<div class="col-12"><div class="card"><div class="card-body">';
+    html += '<h6><i class="bi bi-star"></i> Top Items</h6><table class="table table-sm"><thead><tr><th>Item</th><th class="text-center">Qty</th><th class="text-end">Revenue</th></tr></thead><tbody>';
+    data.topItems.forEach(function(it) { html += '<tr><td>' + it.item_name + '</td><td class="text-center">' + it.qty + '</td><td class="text-end">' + formatCurrency(it.revenue) + '</td></tr>'; });
+    html += '</tbody></table></div></div></div>';
+  }
+  
+  // Transactions
+  if (data.orders && data.orders.length) {
+    html += '<div class="col-12"><div class="card"><div class="card-body">';
+    html += '<h6><i class="bi bi-receipt"></i> Transactions (' + data.orders.length + ')</h6><div style="max-height:200px;overflow-y:auto"><table class="table table-sm"><thead><tr><th>Order #</th><th>Time</th><th class="text-end">Total</th><th>Payment</th><th>Source</th><th>Status</th></tr></thead><tbody>';
+    data.orders.forEach(function(o) {
+      html += '<tr><td>' + o.order_number + '</td><td>' + formatTime12h(o.created_at) + '</td><td class="text-end">' + formatCurrency(o.total) + '</td><td>' + o.payment_method + '</td><td>' + (o.source||'in-store') + '</td><td><span class="badge bg-' + (o.status==='completed' ? 'success' : 'danger') + '">' + o.status + '</span></td></tr>';
+    });
+    html += '</tbody></table></div></div></div></div>';
+  }
+  html += '</div>';
+  document.getElementById('summaryBody').innerHTML = html;
+}
+</script>

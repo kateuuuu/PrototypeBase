@@ -1,0 +1,182 @@
+<% layout('layout') -%>
+
+<div class="page-header">
+  <h3><i class="bi bi-speedometer2"></i> Dashboard</h3>
+  <span class="text-muted">Welcome back, <%= currentUser.full_name %></span>
+</div>
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3 col-sm-6">
+    <div class="stat-card stat-card-primary">
+      <div class="stat-icon"><i class="bi bi-currency-dollar"></i></div>
+      <div class="stat-info">
+        <h4>&#8369;<%= todaySales.total.toLocaleString('en-PH', {minimumFractionDigits:2}) %></h4>
+        <small>Today's Sales (<%= todaySales.count %> orders)</small>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-sm-6">
+    <div class="stat-card stat-card-danger">
+      <div class="stat-icon"><i class="bi bi-wallet2"></i></div>
+      <div class="stat-info">
+        <h4>&#8369;<%= todayExpenses.total.toLocaleString('en-PH', {minimumFractionDigits:2}) %></h4>
+        <small>Today's Expenses</small>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-sm-6">
+    <div class="stat-card stat-card-warning">
+      <div class="stat-icon"><i class="bi bi-exclamation-triangle"></i></div>
+      <div class="stat-info">
+        <h4><%= lowStock.count %></h4>
+        <small>Low Stock Alerts</small>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-sm-6">
+    <div class="stat-card stat-card-success">
+      <div class="stat-icon"><i class="bi bi-people"></i></div>
+      <div class="stat-info">
+        <h4><%= activeShifts.count %></h4>
+        <small>Active Shifts</small>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <!-- Sales Chart -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-graph-up"></i> Sales (Last 7 Days)</div>
+      <div class="card-body">
+        <canvas id="salesChart" height="250"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Items -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-trophy"></i> Top Selling Today</div>
+      <div class="card-body p-0">
+        <% if (topItems.length === 0) { %>
+          <p class="text-muted text-center py-4">No sales today yet</p>
+        <% } else { %>
+          <div class="list-group list-group-flush">
+            <% topItems.forEach((item, i) => { %>
+              <div class="list-group-item d-flex justify-content-between align-items-center">
+                <div>
+                  <span class="badge bg-primary me-2">#<%= i+1 %></span>
+                  <%= item.item_name %>
+                </div>
+                <div class="text-end">
+                  <div class="fw-bold">&#8369;<%= item.revenue.toFixed(2) %></div>
+                  <small class="text-muted"><%= item.qty %> sold</small>
+                </div>
+              </div>
+            <% }) %>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- Recent Orders -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between">
+        <span><i class="bi bi-clock-history"></i> Recent Orders</span>
+        <a href="/pos/history" class="btn btn-sm btn-outline-primary">View All</a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr><th>Order #</th><th>Cashier</th><th>Total</th><th>Payment</th><th>Status</th><th>Time</th></tr>
+            </thead>
+            <tbody>
+              <% recentOrders.forEach(o => { %>
+                <tr>
+                  <td><strong><%= o.order_number %></strong></td>
+                  <td><%= o.cashier_name %></td>
+                  <td>&#8369;<%= o.total.toFixed(2) %></td>
+                  <td><span class="badge bg-info"><%= o.payment_method %></span></td>
+                  <td>
+                    <span class="badge bg-<%= o.status === 'completed' ? 'success' : o.status === 'voided' ? 'danger' : 'warning' %>">
+                      <%= o.status %>
+                    </span>
+                  </td>
+                  <td><small><%= new Date(o.created_at).toLocaleTimeString() %></small></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Low Stock Alerts -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header text-danger"><i class="bi bi-exclamation-triangle"></i> Low Stock Alerts</div>
+      <div class="card-body p-0">
+        <% if (lowStockItems.length === 0) { %>
+          <p class="text-success text-center py-4"><i class="bi bi-check-circle"></i> All stock levels are OK</p>
+        <% } else { %>
+          <div class="list-group list-group-flush">
+            <% lowStockItems.forEach(item => { %>
+              <div class="list-group-item">
+                <div class="d-flex justify-content-between">
+                  <strong><%= item.name %></strong>
+                  <span class="badge bg-<%= item.quantity <= 0 ? 'danger' : 'warning' %>">
+                    <%= item.quantity %> <%= item.unit %>
+                  </span>
+                </div>
+                <small class="text-muted">Min: <%= item.reorder_level %> <%= item.unit %></small>
+                <div class="progress mt-1" style="height: 4px;">
+                  <% const pct = item.reorder_level > 0 ? Math.min(100, (item.quantity / item.reorder_level) * 100) : 0; %>
+                  <div class="progress-bar bg-<%= pct <= 25 ? 'danger' : pct <= 50 ? 'warning' : 'success' %>" style="width: <%= pct %>%"></div>
+                </div>
+              </div>
+            <% }) %>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const chartData = <%- JSON.stringify(salesChart) %>;
+  if (document.getElementById('salesChart') && chartData.length > 0) {
+    new Chart(document.getElementById('salesChart'), {
+      type: 'bar',
+      data: {
+        labels: chartData.map(d => d.date),
+        datasets: [{
+          label: 'Daily Sales (₱)',
+          data: chartData.map(d => d.total),
+          backgroundColor: 'rgba(74, 44, 42, 0.7)',
+          borderColor: '#4a2c2a',
+          borderWidth: 1,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: v => '₱' + v.toLocaleString() } }
+        }
+      }
+    });
+  }
+});
+</script>

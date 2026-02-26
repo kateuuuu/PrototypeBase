@@ -1,0 +1,313 @@
+<% layout('layout') -%>
+
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h3><i class="bi bi-menu-button-wide"></i> Menu Management</h3>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addItemModal">
+    <i class="bi bi-plus-circle"></i> Add Menu Item
+  </button>
+</div>
+
+<!-- Categories -->
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between">
+    <span><i class="bi bi-tags"></i> Categories</span>
+    <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addCategoryModal">
+      <i class="bi bi-plus"></i> Add Category
+    </button>
+  </div>
+  <div class="card-body">
+    <div class="d-flex flex-wrap gap-2">
+      <% categories.forEach(cat => { %>
+        <span class="badge bg-secondary p-2">
+          <%= cat.name %>
+          <button class="btn btn-link btn-sm text-white p-0 ms-1" onclick="deleteCategory(<%= cat.id %>)"><i class="bi bi-x"></i></button>
+        </span>
+      <% }) %>
+    </div>
+  </div>
+</div>
+
+<!-- Menu Items -->
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr><th>Name</th><th>Category</th><th>Price</th><th>Recipe</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          <% menuItems.forEach(item => { %>
+            <tr>
+              <td><strong><%= item.name %></strong></td>
+              <td><%= item.category_name || '-' %></td>
+              <td>&#8369;<%= item.price.toFixed(2) %></td>
+              <td><small><%= item.recipe_count > 0 ? item.recipe_count + ' ingredients' : 'No recipe' %></small></td>
+              <td><span class="badge bg-<%= item.is_available ? 'success' : 'secondary' %>"><%= item.is_available ? 'Available' : 'Hidden' %></span></td>
+              <td>
+                <button class="btn btn-sm btn-outline-info" onclick="viewRecipe(<%= item.id %>, '<%= item.name %>')"><i class="bi bi-list-check"></i></button>
+                <button class="btn btn-sm btn-outline-primary" onclick="editItem(<%= item.id %>)"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteItem(<%= item.id %>)"><i class="bi bi-trash"></i></button>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Item Modal -->
+<div class="modal fade" id="addItemModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 id="itemModalTitle">Add Menu Item</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editItemId">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Name *</label>
+            <input type="text" id="itemName" class="form-control" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Category</label>
+            <select id="itemCategory" class="form-select">
+              <option value="">-- Select --</option>
+              <% categories.forEach(c => { %>
+                <option value="<%= c.id %>"><%= c.name %></option>
+              <% }) %>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Selling Price *</label>
+            <input type="number" id="itemPrice" class="form-control" step="0.01" min="0" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Description</label>
+            <textarea id="itemDescription" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch mt-2">
+              <input class="form-check-input" type="checkbox" id="itemAvailable" checked>
+              <label class="form-check-label" for="itemAvailable">Available for sale</label>
+            </div>
+          </div>
+        </div>
+
+        <hr>
+        <h6>Recipe / Ingredient Deductions</h6>
+        <p class="small text-muted">Select ingredients and the unit you want to measure in. If your inventory uses kg but the recipe needs grams, pick "g" and the system converts automatically.</p>
+        <div id="recipeRows">
+          <div class="row g-2 mb-2 recipe-row align-items-end">
+            <div class="col-md-4">
+              <label class="form-label small">Ingredient</label>
+              <select class="form-select form-select-sm recipe-ingredient" onchange="updateUnitHint(this)">
+                <option value="">-- Select --</option>
+                <% inventoryItems.forEach(ii => { %>
+                  <option value="<%= ii.id %>" data-unit="<%= ii.unit %>"><%= ii.name %> (<%= ii.unit %>)</option>
+                <% }) %>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small">Qty Needed</label>
+              <input type="number" class="form-control form-control-sm recipe-qty" placeholder="e.g. 100" step="0.01" min="0">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Recipe Unit</label>
+              <select class="form-select form-select-sm recipe-unit">
+                <option value="">Same as inventory</option>
+                <option value="g">g (grams)</option>
+                <option value="kg">kg (kilograms)</option>
+                <option value="mg">mg (milligrams)</option>
+                <option value="ml">ml (milliliters)</option>
+                <option value="L">L (liters)</option>
+                <option value="oz">oz (ounces)</option>
+                <option value="lb">lb (pounds)</option>
+                <option value="cups">cups</option>
+                <option value="pcs">pcs</option>
+                <option value="tbsp">tbsp</option>
+                <option value="tsp">tsp</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <small class="text-muted unit-hint"></small>
+            </div>
+            <div class="col-md-1">
+              <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.recipe-row').remove()"><i class="bi bi-x"></i></button>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="addRecipeRow()">
+          <i class="bi bi-plus"></i> Add Ingredient
+        </button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveItem()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Category Modal -->
+<div class="modal fade" id="addCategoryModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header"><h5>Add Category</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body"><input type="text" id="categoryName" class="form-control" placeholder="Category name"></div>
+      <div class="modal-footer"><button class="btn btn-primary" onclick="saveCategory()">Save</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- View Recipe Modal -->
+<div class="modal fade" id="recipeModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 id="recipeModalTitle">Recipe</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body" id="recipeBody">Loading...</div>
+  </div></div>
+</div>
+
+<script>
+const inventoryItems = <%- JSON.stringify(inventoryItems) %>;
+
+function updateUnitHint(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const invUnit = opt.getAttribute('data-unit') || '';
+  const row = sel.closest('.recipe-row');
+  const hint = row.querySelector('.unit-hint');
+  hint.textContent = invUnit ? 'Inv: ' + invUnit : '';
+}
+
+function addRecipeRow() {
+  const first = document.querySelector('.recipe-row');
+  const row = first.cloneNode(true);
+  row.querySelector('.recipe-ingredient').value = '';
+  row.querySelector('.recipe-qty').value = '';
+  row.querySelector('.recipe-unit').value = '';
+  row.querySelector('.unit-hint').textContent = '';
+  document.getElementById('recipeRows').appendChild(row);
+}
+
+function getRecipes() {
+  const rows = document.querySelectorAll('.recipe-row');
+  const recipes = [];
+  rows.forEach(function(row) {
+    const id = row.querySelector('.recipe-ingredient').value;
+    const qty = row.querySelector('.recipe-qty').value;
+    const unit = row.querySelector('.recipe-unit').value;
+    if (id && qty > 0) recipes.push({ inventory_item_id: parseInt(id), quantity_needed: parseFloat(qty), recipe_unit: unit || null });
+  });
+  return recipes;
+}
+
+async function saveItem() {
+  const id = document.getElementById('editItemId').value;
+  const data = {
+    name: document.getElementById('itemName').value,
+    category_id: document.getElementById('itemCategory').value || null,
+    price: document.getElementById('itemPrice').value,
+    description: document.getElementById('itemDescription').value,
+    is_available: document.getElementById('itemAvailable').checked,
+    recipes: getRecipes()
+  };
+  const url = id ? '/menu/items/' + id : '/menu/items';
+  const method = id ? 'PUT' : 'POST';
+  const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  if (res.ok) location.reload();
+  else { const d = await res.json(); alert(d.error); }
+}
+
+async function editItem(itemId) {
+  document.getElementById('editItemId').value = itemId;
+  document.getElementById('itemModalTitle').textContent = 'Edit Menu Item';
+  // Load recipe
+  const recipeRes = await fetch('/menu/items/' + itemId + '/recipe');
+  const recipes = await recipeRes.json();
+  // Clear recipe rows
+  const container = document.getElementById('recipeRows');
+  const rows = container.querySelectorAll('.recipe-row');
+  rows.forEach(function(r, i) { if (i > 0) r.remove(); });
+  if (recipes.length > 0) {
+    recipes.forEach(function(r, i) {
+      if (i > 0) addRecipeRow();
+      const allRows = document.querySelectorAll('.recipe-row');
+      const row = allRows[allRows.length - 1];
+      row.querySelector('.recipe-ingredient').value = r.inventory_item_id;
+      row.querySelector('.recipe-qty').value = r.quantity_needed;
+      row.querySelector('.recipe-unit').value = r.recipe_unit || '';
+      updateUnitHint(row.querySelector('.recipe-ingredient'));
+    });
+  }
+  // Fetch item details
+  const items = <%- JSON.stringify(menuItems || []) %>;
+  const item = items.find(function(m) { return m.id === itemId; });
+  if (item) {
+    document.getElementById('itemName').value = item.name;
+    document.getElementById('itemCategory').value = item.category_id || '';
+    document.getElementById('itemPrice').value = item.price;
+    document.getElementById('itemDescription').value = item.description || '';
+    document.getElementById('itemAvailable').checked = item.is_available ? true : false;
+  }
+  new bootstrap.Modal(document.getElementById('addItemModal')).show();
+}
+
+async function viewRecipe(id, name) {
+  document.getElementById('recipeModalTitle').textContent = 'Recipe: ' + name;
+  new bootstrap.Modal(document.getElementById('recipeModal')).show();
+  const res = await fetch('/menu/items/' + id + '/recipe');
+  const recipes = await res.json();
+  if (recipes.length === 0) { document.getElementById('recipeBody').innerHTML = '<p class="text-muted">No recipe set.</p>'; return; }
+  let html = '<table class="table table-sm"><thead><tr><th>Ingredient</th><th>Needed</th><th>Recipe Unit</th><th>Inventory Unit</th><th>In Stock</th></tr></thead><tbody>';
+  recipes.forEach(function(r) {
+    html += '<tr><td>' + r.item_name + '</td><td>' + r.quantity_needed + '</td><td>' + (r.recipe_unit || r.inventory_unit) + '</td><td>' + r.inventory_unit + '</td><td>' + r.current_stock + ' ' + r.inventory_unit + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('recipeBody').innerHTML = html;
+}
+
+async function deleteItem(id) {
+  if (!confirm('Delete this menu item?')) return;
+  await fetch('/menu/items/' + id, { method: 'DELETE' });
+  location.reload();
+}
+
+async function saveCategory() {
+  const name = document.getElementById('categoryName').value;
+  if (!name) return;
+  await fetch('/menu/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+  location.reload();
+}
+
+async function deleteCategory(id) {
+  if (!confirm('Delete this category?')) return;
+  await fetch('/menu/categories/' + id, { method: 'DELETE' });
+  location.reload();
+}
+
+// Reset form when modal opens for new item
+document.getElementById('addItemModal').addEventListener('show.bs.modal', function(e) {
+  // Only reset if triggered by the Add button (not by editItem)
+  if (e.relatedTarget && e.relatedTarget.textContent.includes('Add')) {
+    document.getElementById('editItemId').value = '';
+    document.getElementById('itemModalTitle').textContent = 'Add Menu Item';
+    document.getElementById('itemName').value = '';
+    document.getElementById('itemCategory').value = '';
+    document.getElementById('itemPrice').value = '';
+    document.getElementById('itemDescription').value = '';
+    document.getElementById('itemAvailable').checked = true;
+    // Reset recipe rows
+    const container = document.getElementById('recipeRows');
+    const rows = container.querySelectorAll('.recipe-row');
+    rows.forEach(function(r, i) { if (i > 0) r.remove(); });
+    const firstRow = container.querySelector('.recipe-row');
+    if (firstRow) {
+      firstRow.querySelector('.recipe-ingredient').value = '';
+      firstRow.querySelector('.recipe-qty').value = '';
+      firstRow.querySelector('.recipe-unit').value = '';
+    }
+  }
+});
+</script>

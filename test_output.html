@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analytics Dashboard | Señorito Cafe POS</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#4a2c2a">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="/css/style.css" rel="stylesheet">
+</head>
+<body>
+  
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h4><i class="bi bi-cup-hot-fill"></i> Señorito</h4>
+      <small class="text-muted">Cafe POS System</small>
+    </div>
+    <nav class="sidebar-nav">
+      
+      
+      <a href="/dashboard" class="nav-link ">
+        <i class="bi bi-speedometer2"></i> Dashboard
+      </a>
+      
+      
+      <a href="/pos" class="nav-link ">
+        <i class="bi bi-cart3"></i> Point of Sale
+      </a>
+      
+      
+      <a href="/pos/history" class="nav-link ">
+        <i class="bi bi-clock-history"></i> Order History
+      </a>
+      
+
+      
+      <div class="nav-section">Inventory</div>
+      
+      
+      <a href="/inventory" class="nav-link ">
+        <i class="bi bi-box-seam"></i> Inventory
+      </a>
+      
+      
+      <a href="/inventory/valuation" class="nav-link ">
+        <i class="bi bi-cash-stack"></i> Valuation Report
+      </a>
+      
+      
+      <a href="/purchase-orders" class="nav-link ">
+        <i class="bi bi-truck"></i> Purchase Orders
+      </a>
+      
+      
+      <a href="/audit-log" class="nav-link ">
+        <i class="bi bi-journal-text"></i> Audit Log
+      </a>
+      
+
+      
+      <div class="nav-section">Reports & Analytics</div>
+      
+      
+      <a href="/analytics" class="nav-link active">
+        <i class="bi bi-graph-up"></i> Sales Analytics
+      </a>
+      
+      
+      <a href="/expenses" class="nav-link ">
+        <i class="bi bi-wallet2"></i> Expenses
+      </a>
+      
+
+      
+      <div class="nav-section">Management</div>
+      
+      
+      <a href="/menu" class="nav-link ">
+        <i class="bi bi-menu-button-wide"></i> Menu Items
+      </a>
+      
+      
+      <a href="/employees" class="nav-link ">
+        <i class="bi bi-people"></i> Employees
+      </a>
+      
+
+      
+      <a href="/shifts" class="nav-link ">
+        <i class="bi bi-alarm"></i> Shifts
+      </a>
+      
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <i class="bi bi-person-circle"></i>
+        <span>System Administrator</span>
+        <small class="badge bg-secondary">admin</small>
+      </div>
+      <a href="/logout" class="btn btn-outline-light btn-sm w-100 mt-2">
+        <i class="bi bi-box-arrow-right"></i> Logout
+      </a>
+    </div>
+  </div>
+
+  <div class="main-content" id="mainContent">
+    <div class="top-bar">
+      <button class="btn btn-link sidebar-toggle" onclick="toggleSidebar()">
+        <i class="bi bi-list"></i>
+      </button>
+      <div class="d-flex align-items-center gap-3">
+        <span class="online-status" id="onlineStatus">
+          <i class="bi bi-wifi" id="statusIcon"></i> <span id="statusText">Online</span>
+        </span>
+        <span class="text-muted" id="currentDateTime"></span>
+      </div>
+    </div>
+    <div class="content-area">
+      
+<style>
+.quadrant-dot { cursor: pointer; transition: transform 0.15s; }
+.quadrant-dot:hover { transform: scale(1.2); }
+.table-row-highlight { background-color: #fff3cd !important; }
+.sortable-header { cursor: pointer; user-select: none; }
+.sortable-header:hover { color: #0d6efd; }
+.empty-state { text-align: center; padding: 3rem; color: #6c757d; }
+.cost-warning { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 0.5rem 1rem; margin-bottom: 1rem; }
+</style>
+
+<h2 class="mb-4"><i class="bi bi-graph-up"></i> Analytics Dashboard</h2>
+
+<!-- Filters Section -->
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form class="row g-2 align-items-end" method="GET" id="filterForm">
+      <div class="col-md-2">
+        <label class="form-label small mb-0">Quick Filter</label>
+        <select name="period" class="form-select form-select-sm" onchange="if(this.value!=='custom'){document.getElementById('filterForm').submit()}">
+          <option value="">All Time</option>
+          <option value="today" >Today</option>
+          <option value="week" >Last 7 Days</option>
+          <option value="month" >Last 30 Days</option>
+          <option value="custom" >Custom Range</option>
+        </select>
+      </div>
+      <div class="col-md-1">
+        <label class="form-label small mb-0">From</label>
+        <input type="date" name="from" class="form-control form-control-sm" value="">
+      </div>
+      <div class="col-md-1">
+        <label class="form-label small mb-0">To</label>
+        <input type="date" name="to" class="form-control form-control-sm" value="">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-0">Order Source</label>
+        <select name="source" class="form-select form-select-sm">
+          <option value="all">All Sources</option>
+          <option value="in-store" >In-store</option>
+          <option value="grab" >Grab</option>
+          <option value="foodpanda" >Foodpanda</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-0">Menu Category</label>
+        <select name="category" class="form-select form-select-sm">
+          <option value="all">All Categories</option>
+          
+            <option value="6" >Add-Ons</option>
+          
+            <option value="5" >Food</option>
+          
+            <option value="4" >Frappe</option>
+          
+            <option value="1" >Hot Coffee</option>
+          
+            <option value="2" >Iced Coffee</option>
+          
+            <option value="3" >Non-Coffee</option>
+          
+            <option value="7" >Others</option>
+          
+        </select>
+      </div>
+      <div class="col-md-2">
+        <div class="form-check mt-3">
+          <input class="form-check-input" type="checkbox" name="includeMissingCost" id="includeMissingCost" >
+          <label class="form-check-label small" for="includeMissingCost">Include items w/o cost</label>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="d-flex gap-1">
+          <button type="submit" class="btn btn-sm btn-primary flex-grow-1">Apply</button>
+          <a href="/analytics" class="btn btn-sm btn-outline-secondary">Reset</a>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+
+
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="card"><div class="card-body text-center"><h4>6</h4><small>Total Orders</small></div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body text-center"><h4>&#8369;8580.00</h4><small>Total Revenue</small></div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body text-center"><h4>&#8369;1430.00</h4><small>Avg Order Value</small></div></div></div>
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <small class="text-muted">Sales by Source</small>
+      <div class="small">In-store: &#8369;8580.00</div>
+      <div class="small">Grab: &#8369;0.00</div>
+      <div class="small">Foodpanda: &#8369;0.00</div>
+    </div></div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Sales Trend -->
+  <div class="col-md-8">
+    <div class="card"><div class="card-body">
+      <h5>Sales Trend <small class="text-muted">(Daily)</small></h5>
+      
+        <canvas id="salesChart" height="200"></canvas>
+      
+    </div></div>
+  </div>
+  <!-- Top Items -->
+  <div class="col-md-4">
+    <div class="card"><div class="card-body">
+      <h5>Top Selling Items</h5>
+      
+      <table class="table table-sm mb-0">
+        <thead><tr><th>Item</th><th class="text-end">Qty</th><th class="text-end">Revenue</th><th class="text-end">Profit</th></tr></thead>
+        <tbody>
+          
+          <tr>
+            <td class="text-truncate" style="max-width:100px">Test Item A (high profit)</td>
+            <td class="text-end">22</td>
+            <td class="text-end">&#8369;2640</td>
+            <td class="text-end">&#8369;2200</td>
+          </tr>
+          
+          <tr>
+            <td class="text-truncate" style="max-width:100px">Matcha Latte</td>
+            <td class="text-end">19</td>
+            <td class="text-end">&#8369;2280</td>
+            <td class="text-end">&#8369;1947</td>
+          </tr>
+          
+          <tr>
+            <td class="text-truncate" style="max-width:100px">Iced Americano</td>
+            <td class="text-end">19</td>
+            <td class="text-end">&#8369;1900</td>
+            <td class="text-end">&#8369;1862</td>
+          </tr>
+          
+          <tr>
+            <td class="text-truncate" style="max-width:100px">Test Item C (low profit)</td>
+            <td class="text-end">20</td>
+            <td class="text-end">&#8369;1600</td>
+            <td class="text-end">&#8369;200</td>
+          </tr>
+          
+          <tr>
+            <td class="text-truncate" style="max-width:100px">Test Item D (low profit)</td>
+            <td class="text-end">2</td>
+            <td class="text-end">&#8369;160</td>
+            <td class="text-end">&#8369;20</td>
+          </tr>
+          
+        </tbody>
+      </table>
+      
+    </div></div>
+  </div>
+</div>
+
+<!-- 2×2 Quadrant Heatmap -->
+<div class="row g-4 mt-2">
+  <div class="col-md-8">
+    <div class="card"><div class="card-body">
+      <h5>Menu Profitability Heatmap (2×2 Quadrant)</h5>
+      <p class="small text-muted mb-2">X-axis: Profit per item | Y-axis: Units Sold. Dashed lines = median thresholds. Bubble size = Revenue.</p>
+      
+      
+        <div style="position: relative; height: 350px;">
+          <canvas id="heatmapChart"></canvas>
+        </div>
+      
+    </div></div>
+  </div>
+  <div class="col-md-4">
+    <div class="card"><div class="card-body">
+      <h5>Quadrant Legend</h5>
+      <div class="d-flex flex-column gap-2 mb-3">
+        <div class="d-flex align-items-center gap-2"><span class="badge bg-success">&#11088;</span><small><strong>Top Performers</strong> — High Profit + High Volume</small></div>
+        <div class="d-flex align-items-center gap-2"><span class="badge bg-info">&#128640;</span><small><strong>Promote More</strong> — High Profit + Low Volume</small></div>
+        <div class="d-flex align-items-center gap-2"><span class="badge bg-warning text-dark">&#128200;</span><small><strong>Improve Pricing</strong> — Low Profit + High Volume</small></div>
+        <div class="d-flex align-items-center gap-2"><span class="badge bg-danger">&#128269;</span><small><strong>Review/Remove</strong> — Low Profit + Low Volume</small></div>
+      </div>
+      <div class="row text-center g-2">
+        <div class="col-6"><div class="p-2 bg-success bg-opacity-10 border rounded"><strong>1</strong><br><small>Top Performers</small></div></div>
+        <div class="col-6"><div class="p-2 bg-info bg-opacity-10 border rounded"><strong>1</strong><br><small>Promote More</small></div></div>
+        <div class="col-6"><div class="p-2 bg-warning bg-opacity-10 border rounded"><strong>1</strong><br><small>Improve Pricing</small></div></div>
+        <div class="col-6"><div class="p-2 bg-danger bg-opacity-10 border rounded"><strong>1</strong><br><small>Review/Remove</small></div></div>
+      </div>
+      
+    </div></div>
+  </div>
+</div>
+
+<!-- Detailed Profitability Table -->
+<div class="card mt-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">Detailed Profitability Table</h5>
+    <div class="d-flex gap-2">
+      <select id="tableSort" class="form-select form-select-sm" style="width:auto" onchange="sortTable(this.value)">
+        <option value="revenue">Sort: Highest Revenue</option>
+        <option value="profit">Sort: Highest Profit/Item</option>
+        <option value="margin">Sort: Lowest Margin</option>
+        <option value="volume">Sort: Highest Units Sold</option>
+      </select>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" id="profitabilityTable">
+        <thead class="table-light">
+          <tr>
+            <th>Item</th>
+            <th>Category</th>
+            <th class="text-end">Price</th>
+            <th class="text-end">Est. Cost</th>
+            <th class="text-end">Profit/Item</th>
+            <th class="text-end">Margin %</th>
+            <th class="text-end">Units Sold</th>
+            <th class="text-end">Revenue</th>
+            <th>Quadrant</th>
+            <th>Cost Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          
+          <tr class="table-success" data-item-id="4" data-revenue="2640" data-profit="100" data-margin="83.33" data-volume="22">
+            <td><strong>Test Item B (high profit)</strong></td>
+            <td><small>Iced Coffee</small></td>
+            <td class="text-end">&#8369;120.00</td>
+            <td class="text-end">&#8369;20.00</td>
+            <td class="text-end">&#8369;100.00</td>
+            <td class="text-end">83.3%</td>
+            <td class="text-end">22</td>
+            <td class="text-end">&#8369;2640.00</td>
+            <td><span class="badge bg-success ">Top Performers</span></td>
+            <td>
+              
+                <span class="badge bg-success-subtle text-success">Set</span>
+              
+            </td>
+          </tr>
+          
+          <tr class="table-warning" data-item-id="5" data-revenue="1600" data-profit="10" data-margin="12.5" data-volume="20">
+            <td><strong>Test Item C (low profit)</strong></td>
+            <td><small>Non-Coffee</small></td>
+            <td class="text-end">&#8369;80.00</td>
+            <td class="text-end">&#8369;70.00</td>
+            <td class="text-end">&#8369;10.00</td>
+            <td class="text-end">12.5%</td>
+            <td class="text-end">20</td>
+            <td class="text-end">&#8369;1600.00</td>
+            <td><span class="badge bg-warning text-dark">Improve Pricing</span></td>
+            <td>
+              
+                <span class="badge bg-success-subtle text-success">Set</span>
+              
+            </td>
+          </tr>
+          
+          <tr class="table-danger" data-item-id="6" data-revenue="160" data-profit="10" data-margin="12.5" data-volume="2">
+            <td><strong>Test Item D (low profit)</strong></td>
+            <td><small>Non-Coffee</small></td>
+            <td class="text-end">&#8369;80.00</td>
+            <td class="text-end">&#8369;70.00</td>
+            <td class="text-end">&#8369;10.00</td>
+            <td class="text-end">12.5%</td>
+            <td class="text-end">2</td>
+            <td class="text-end">&#8369;160.00</td>
+            <td><span class="badge bg-danger ">Review or Remove</span></td>
+            <td>
+              
+                <span class="badge bg-success-subtle text-success">Set</span>
+              
+            </td>
+          </tr>
+          
+          <tr class="table-info" data-item-id="3" data-revenue="0" data-profit="100" data-margin="83.33" data-volume="0">
+            <td><strong>Test Item A (high profit)</strong></td>
+            <td><small>Hot Coffee</small></td>
+            <td class="text-end">&#8369;120.00</td>
+            <td class="text-end">&#8369;20.00</td>
+            <td class="text-end">&#8369;100.00</td>
+            <td class="text-end">83.3%</td>
+            <td class="text-end">0</td>
+            <td class="text-end">&#8369;0.00</td>
+            <td><span class="badge bg-info ">Promote More</span></td>
+            <td>
+              
+                <span class="badge bg-success-subtle text-success">Set</span>
+              
+            </td>
+          </tr>
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Category & Hourly Charts -->
+<div class="row g-4 mt-2">
+  <div class="col-md-6">
+    <div class="card"><div class="card-body">
+      <h5>Sales by Category</h5>
+      
+        <div class="row">
+          <div class="col-7"><canvas id="categoryChart" height="200"></canvas></div>
+          <div class="col-5">
+            <table class="table table-sm">
+              <thead><tr><th>Category</th><th class="text-end">Units</th><th class="text-end">Revenue</th></tr></thead>
+              <tbody>
+                
+                <tr><td>Iced Coffee</td><td class="text-end">41</td><td class="text-end">&#8369;4540</td></tr>
+                
+                <tr><td>Non-Coffee</td><td class="text-end">41</td><td class="text-end">&#8369;4040</td></tr>
+                
+              </tbody>
+            </table>
+          </div>
+        </div>
+      
+    </div></div>
+  </div>
+  <div class="col-md-6">
+    <div class="card"><div class="card-body">
+      <h5>Hourly Sales Pattern</h5>
+      
+        <canvas id="hourlyChart" height="200"></canvas>
+      
+    </div></div>
+  </div>
+</div>
+
+
+
+<script>
+
+// Sales Trend Chart
+
+new Chart(document.getElementById('salesChart'), {
+  type: 'line',
+  data: {
+    labels: ["2026-02-26"],
+    datasets: [{
+      label: 'Revenue', data: [8580],
+      borderColor: '#4a2c2a', backgroundColor: 'rgba(74,44,42,0.1)', fill: true, tension: 0.3
+    }, {
+      label: 'Orders', data: [6],
+      borderColor: '#e67e22', yAxisID: 'y1', tension: 0.3
+    }]
+  },
+  options: {
+    scales: {
+      y: { beginAtZero: true, title: { display: true, text: 'Revenue (PHP)' } },
+      y1: { position: 'right', beginAtZero: true, title: { display: true, text: 'Orders' }, grid: { drawOnChartArea: false } }
+    }
+  }
+});
+
+
+// 2×2 Quadrant Bubble Chart - Menu Profitability Heatmap
+(function() {
+  const canvas = document.getElementById('heatmapChart');
+  if (!canvas) {
+    console.log('Heatmap: No canvas element found (empty state shown)');
+    return;
+  }
+  
+  // Get all items from heatmap where cost is set (not missing)
+  const allItems = [{"id":3,"name":"Test Item A (high profit)","price":120,"category":"Hot Coffee","volume":0,"revenue":0,"estimated_cost":20,"profit_per_item":100,"margin":83.33,"cost_status":"set","quadrant":"Promote More","quadrantKey":"promoteMore"},{"id":4,"name":"Test Item B (high profit)","price":120,"category":"Iced Coffee","volume":22,"revenue":2640,"estimated_cost":20,"profit_per_item":100,"margin":83.33,"cost_status":"set","quadrant":"Top Performers","quadrantKey":"topPerformers"},{"id":5,"name":"Test Item C (low profit)","price":80,"category":"Non-Coffee","volume":20,"revenue":1600,"estimated_cost":70,"profit_per_item":10,"margin":12.5,"cost_status":"set","quadrant":"Improve Pricing","quadrantKey":"improvePricing"},{"id":6,"name":"Test Item D (low profit)","price":80,"category":"Non-Coffee","volume":2,"revenue":160,"estimated_cost":70,"profit_per_item":10,"margin":12.5,"cost_status":"set","quadrant":"Review or Remove","quadrantKey":"reviewRemove"}];
+  const hm = allItems.filter(function(h) { return h.cost_status === 'set' || h.cost_status === 'zero'; });
+  
+  if (hm.length === 0) {
+    console.log('Heatmap: No plottable items with cost data');
+    return;
+  }
+  
+  console.log('Heatmap: Rendering', hm.length, 'items');
+  
+  const medProfit = 100;
+  const medVolume = 20;
+  
+  // Quadrant colors
+  const colors = { 
+    topPerformers: 'rgba(25,135,84,0.75)', 
+    promoteMore: 'rgba(13,202,240,0.75)', 
+    improvePricing: 'rgba(255,193,7,0.75)', 
+    reviewRemove: 'rgba(220,53,69,0.75)',
+    missing: 'rgba(108,117,125,0.5)'
+  };
+  
+  // Calculate bubble size based on revenue (normalize to 8-35 radius)
+  const revenues = hm.map(function(i) { return i.revenue; });
+  const maxRev = Math.max.apply(null, revenues.concat([1]));
+  const minRev = Math.min.apply(null, revenues.concat([0]));
+  
+  // Group items by quadrant for datasets
+  const datasets = {};
+  hm.forEach(function(item) {
+    var qKey = item.quadrantKey || 'reviewRemove';
+    if (!datasets[qKey]) {
+      datasets[qKey] = { 
+        label: item.quadrant, 
+        data: [], 
+        backgroundColor: colors[qKey] || colors.reviewRemove,
+        borderColor: (colors[qKey] || colors.reviewRemove).replace('0.75', '1'),
+        borderWidth: 2,
+        hoverBorderWidth: 3
+      };
+    }
+    var normalized = maxRev > minRev ? (item.revenue - minRev) / (maxRev - minRev) : 0.5;
+    var radius = 8 + normalized * 27;
+    datasets[qKey].data.push({ 
+      x: item.profit_per_item, 
+      y: item.volume, 
+      r: radius,
+      name: item.name,
+      id: item.id,
+      revenue: item.revenue,
+      cost: item.estimated_cost,
+      margin: item.margin,
+      quadrant: item.quadrant,
+      costStatus: item.cost_status
+    });
+  });
+  
+  // Calculate axis bounds
+  var profits = hm.map(function(i) { return i.profit_per_item; });
+  var volumes = hm.map(function(i) { return i.volume; });
+  var xMin = Math.min.apply(null, profits) - 15;
+  var xMax = Math.max.apply(null, profits) + 15;
+  var yMin = 0;
+  var yMax = Math.max.apply(null, volumes) * 1.2 + 1;
+  
+  // Ensure axes have reasonable ranges
+  if (xMin === xMax) { xMin -= 20; xMax += 20; }
+  if (yMax <= 1) { yMax = 10; }
+  
+  var chart = new Chart(canvas, {
+    type: 'bubble',
+    data: { datasets: Object.values(datasets) },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: { boxWidth: 12, padding: 15 }
+        },
+        tooltip: {
+          callbacks: { 
+            label: function(ctx) { 
+              var d = ctx.raw;
+              var lines = [
+                d.name,
+                'Units Sold: ' + d.y,
+                'Revenue: ₱' + d.revenue.toFixed(2),
+                'Est. Cost: ₱' + d.cost.toFixed(2),
+                'Profit/Item: ₱' + d.x.toFixed(2),
+                'Margin: ' + d.margin.toFixed(1) + '%',
+                'Quadrant: ' + d.quadrant
+              ];
+              if (d.costStatus === 'zero') {
+                lines.push('⚠ Cost is zero');
+              }
+              return lines;
+            }
+          }
+        }
+      },
+      onClick: function(evt, elements) {
+        if (elements.length > 0) {
+          var dataIndex = elements[0].index;
+          var datasetIndex = elements[0].datasetIndex;
+          var itemId = chart.data.datasets[datasetIndex].data[dataIndex].id;
+          highlightTableRow(itemId);
+        }
+      },
+      scales: {
+        x: { 
+          title: { display: true, text: 'Profit per Item (₱)', font: { weight: 'bold' } },
+          min: xMin,
+          max: xMax,
+          grid: { color: 'rgba(0,0,0,0.05)' }
+        },
+        y: { 
+          title: { display: true, text: 'Units Sold', font: { weight: 'bold' } },
+          min: yMin,
+          max: yMax,
+          grid: { color: 'rgba(0,0,0,0.05)' }
+        }
+      }
+    },
+    plugins: [{
+      id: 'quadrantLines',
+      afterDraw: function(chart) {
+        var ctx = chart.ctx;
+        var xScale = chart.scales.x;
+        var yScale = chart.scales.y;
+        
+        // Draw quadrant background shading
+        var xPx = xScale.getPixelForValue(medProfit);
+        var yPx = yScale.getPixelForValue(medVolume);
+        
+        ctx.save();
+        
+        // Top-right: Top Performers (green tint)
+        ctx.fillStyle = 'rgba(25,135,84,0.05)';
+        ctx.fillRect(xPx, yScale.top, xScale.right - xPx, yPx - yScale.top);
+        
+        // Top-left: Improve Pricing (yellow tint)
+        ctx.fillStyle = 'rgba(255,193,7,0.05)';
+        ctx.fillRect(xScale.left, yScale.top, xPx - xScale.left, yPx - yScale.top);
+        
+        // Bottom-right: Promote More (blue tint)
+        ctx.fillStyle = 'rgba(13,202,240,0.05)';
+        ctx.fillRect(xPx, yPx, xScale.right - xPx, yScale.bottom - yPx);
+        
+        // Bottom-left: Review/Remove (red tint)
+        ctx.fillStyle = 'rgba(220,53,69,0.05)';
+        ctx.fillRect(xScale.left, yPx, xPx - xScale.left, yScale.bottom - yPx);
+        
+        // Draw dashed median threshold lines
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 2;
+        
+        // Vertical median line (profit threshold)
+        ctx.beginPath();
+        ctx.moveTo(xPx, yScale.top);
+        ctx.lineTo(xPx, yScale.bottom);
+        ctx.stroke();
+        
+        // Horizontal median line (volume threshold)
+        ctx.beginPath();
+        ctx.moveTo(xScale.left, yPx);
+        ctx.lineTo(xScale.right, yPx);
+        ctx.stroke();
+        
+        // Add quadrant labels in corners
+        ctx.setLineDash([]);
+        ctx.font = 'bold 10px sans-serif';
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillText('★ Top Performers', xPx + 8, yScale.top + 14);
+        ctx.fillText('⚡ Promote More', xPx + 8, yPx + 14);
+        ctx.fillText('📈 Improve Pricing', xScale.left + 8, yScale.top + 14);
+        ctx.fillText('🔍 Review/Remove', xScale.left + 8, yPx + 14);
+        
+        ctx.restore();
+      }
+    }]
+  });
+  
+  console.log('Heatmap: Chart rendered successfully');
+})();
+
+// Category Chart
+
+new Chart(document.getElementById('categoryChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ["Iced Coffee","Non-Coffee"],
+    datasets: [{ 
+      data: [4540,4040],
+      backgroundColor: ['#4a2c2a','#e67e22','#27ae60','#3498db','#9b59b6','#e74c3c','#1abc9c','#f39c12'] 
+    }]
+  },
+  options: {
+    plugins: {
+      legend: { position: 'bottom', labels: { boxWidth: 12 } }
+    }
+  }
+});
+
+
+// Hourly Chart
+
+new Chart(document.getElementById('hourlyChart'), {
+  type: 'bar',
+  data: {
+    labels: ["0:00"],
+    datasets: [{ 
+      label: 'Orders', 
+      data: [6],
+      backgroundColor: 'rgba(74,44,42,0.6)' 
+    }]
+  },
+  options: { scales: { y: { beginAtZero: true } } }
+});
+
+
+// Highlight table row when clicking chart
+function highlightTableRow(itemId) {
+  // Remove previous highlight
+  document.querySelectorAll('#profitabilityTable tbody tr').forEach(tr => tr.classList.remove('table-row-highlight'));
+  // Add highlight to matching row
+  const row = document.querySelector('#profitabilityTable tr[data-item-id="' + itemId + '"]');
+  if (row) {
+    row.classList.add('table-row-highlight');
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+// Sort table
+function sortTable(sortBy) {
+  const tbody = document.querySelector('#profitabilityTable tbody');
+  if (!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  
+  rows.sort((a, b) => {
+    let aVal, bVal;
+    switch(sortBy) {
+      case 'revenue': aVal = parseFloat(a.dataset.revenue) || 0; bVal = parseFloat(b.dataset.revenue) || 0; return bVal - aVal;
+      case 'profit': aVal = parseFloat(a.dataset.profit) || 0; bVal = parseFloat(b.dataset.profit) || 0; return bVal - aVal;
+      case 'margin': aVal = parseFloat(a.dataset.margin) || 0; bVal = parseFloat(b.dataset.margin) || 0; return aVal - bVal;
+      case 'volume': aVal = parseFloat(a.dataset.volume) || 0; bVal = parseFloat(b.dataset.volume) || 0; return bVal - aVal;
+      default: return 0;
+    }
+  });
+  
+  rows.forEach(row => tbody.appendChild(row));
+}
+
+</script>
+
+    </div>
+  </div>
+  
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="/js/app.js"></script>
+  
+</body>
+</html>

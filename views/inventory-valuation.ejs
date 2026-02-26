@@ -1,0 +1,319 @@
+<% layout('layout') -%>
+
+<style>
+@media print {
+  .no-print { display: none !important; }
+  .card { border: 1px solid #ddd !important; }
+}
+</style>
+
+<div class="page-header d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h3><i class="bi bi-cash-stack"></i> Inventory Valuation Report</h3>
+    <small class="text-muted">Current as of <%= new Date().toLocaleString('en-US', {month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit'}) %></small>
+  </div>
+  <div class="d-flex gap-2 no-print">
+    <button class="btn btn-outline-secondary" onclick="exportCSV()"><i class="bi bi-download"></i> Export CSV</button>
+    <button class="btn btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>
+  </div>
+</div>
+
+<!-- Valuation Basis -->
+<div class="alert alert-light border mb-3 py-2">
+  <small><i class="bi bi-info-circle"></i> <strong>Valuation Basis:</strong> Current stock × recorded unit cost (per item's stock unit)</small>
+</div>
+
+<!-- Summary Card -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card bg-primary text-white">
+      <div class="card-body text-center">
+        <% if (userRole === 'admin') { %>
+        <h3 class="mb-0">&#8369;<%= allTotalValue.toLocaleString('en-PH', {minimumFractionDigits:2}) %></h3>
+        <small>Total Inventory Value</small>
+        <% } else { %>
+        <h3 class="mb-0"><%= items.length %></h3>
+        <small>Total Items</small>
+        <% } %>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-body text-center">
+        <h3 class="mb-0"><%= items.length %></h3>
+        <small class="text-muted">Items (filtered)</small>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-body text-center">
+        <h3 class="mb-0"><%= Object.keys(byCategory).length %></h3>
+        <small class="text-muted">Categories</small>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Category Breakdown -->
+<div class="row g-3 mb-4">
+  <div class="col-md-5">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-pie-chart"></i> Value by Category</div>
+      <div class="card-body d-flex align-items-center justify-content-center">
+        <% if (Object.keys(byCategory).length <= 1) { %>
+          <div class="text-center">
+            <h2 class="text-primary mb-2">100%</h2>
+            <p class="text-muted mb-0"><%= Object.keys(byCategory)[0] || 'No items' %></p>
+            <small class="text-muted">Only one category exists</small>
+          </div>
+        <% } else { %>
+          <canvas id="valuationChart" height="200"></canvas>
+        <% } %>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-7">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-list-ul"></i> Category Summary</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>Category</th><th class="text-end">Value</th><th class="text-end">% of Total</th></tr></thead>
+          <tbody>
+            <% Object.entries(byCategory).sort((a,b) => b[1]-a[1]).forEach(([cat, val]) => { %>
+              <tr>
+                <td><%= cat %></td>
+                <% if (userRole === 'admin') { %>
+                <td class="text-end">&#8369;<%= val.toLocaleString('en-PH', {minimumFractionDigits:2}) %></td>
+                <% } else { %>
+                <td class="text-end text-muted">-</td>
+                <% } %>
+                <td class="text-end"><%= allTotalValue > 0 ? (val/allTotalValue*100).toFixed(1) : 0 %>%</td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3 no-print">
+  <div class="card-body py-2">
+    <form class="row g-2 align-items-center" method="GET">
+      <div class="col-md-2">
+        <select name="category" class="form-select form-select-sm">
+          <option value="all">All Categories</option>
+          <% categories.forEach(cat => { %>
+          <option value="<%= cat %>" <%= query.category === cat ? 'selected' : '' %>><%= cat %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <input type="text" name="search" class="form-control form-control-sm" placeholder="Search item name..." value="<%= query.search || '' %>">
+      </div>
+      <div class="col-md-3">
+        <select name="sort" class="form-select form-select-sm">
+          <option value="">Sort: Highest Value First</option>
+          <option value="value_asc" <%= query.sort === 'value_asc' ? 'selected' : '' %>>Lowest Value First</option>
+          <option value="lowest_stock" <%= query.sort === 'lowest_stock' ? 'selected' : '' %>>Lowest Stock First</option>
+          <option value="critical" <%= query.sort === 'critical' ? 'selected' : '' %>>Critical/Low Stock First</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-primary btn-sm w-100">Apply</button>
+      </div>
+      <div class="col-md-2">
+        <a href="/inventory/valuation" class="btn btn-outline-secondary btn-sm w-100">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Detailed Table -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-table"></i> All Items</span>
+    <% if (userRole === 'admin') { %>
+    <small class="text-muted">Showing <%= items.length %> items | Filtered total: &#8369;<%= totalValue.toLocaleString('en-PH', {minimumFractionDigits:2}) %></small>
+    <% } else { %>
+    <small class="text-muted">Showing <%= items.length %> items</small>
+    <% } %>
+  </div>
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-hover table-sm mb-0" id="valuationTable">
+      <thead class="table-light">
+        <tr>
+          <th>Item</th>
+          <th>Category</th>
+          <th class="text-end">Stock</th>
+          <th>Unit</th>
+          <th class="text-end">Reorder</th>
+          <th>Status</th>
+          <% if (userRole === 'admin') { %>
+          <th class="text-end">Cost/Unit</th>
+          <th class="text-end">Total Value</th>
+          <th class="text-end">% of Total</th>
+          <% } %>
+          <th class="no-print">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% items.forEach(item => { 
+          const status = item.quantity <= 0 ? 'Out' : item.quantity <= item.reorder_level ? 'Low' : 'OK';
+          const statusClass = status === 'OK' ? 'success' : status === 'Low' ? 'warning' : 'danger';
+          const pctOfTotal = allTotalValue > 0 ? (item.total_value / allTotalValue * 100).toFixed(1) : 0;
+        %>
+          <tr>
+            <td>
+              <a href="/inventory?item=<%= item.id %>&action=log" class="text-decoration-none"><%= item.name %></a>
+            </td>
+            <td><small class="text-muted"><%= item.category || '-' %></small></td>
+            <td class="text-end"><%= item.quantity.toFixed(2) %></td>
+            <td><%= item.unit %></td>
+            <td class="text-end"><%= item.reorder_level %></td>
+            <td><span class="badge bg-<%= statusClass %>"><%= status %></span></td>
+            <% if (userRole === 'admin') { %>
+            <td class="text-end">&#8369;<%= item.cost_per_unit.toFixed(2) %></td>
+            <td class="text-end"><strong>&#8369;<%= item.total_value.toFixed(2) %></strong></td>
+            <td class="text-end"><small><%= pctOfTotal %>%</small></td>
+            <% } %>
+            <td class="no-print">
+              <a href="/inventory?item=<%= item.id %>&action=log" class="btn btn-sm btn-outline-primary" title="View/Log"><i class="bi bi-journal-plus"></i></a>
+              <button class="btn btn-sm btn-outline-secondary" onclick="viewAudit(<%= item.id %>)" title="Audit Log"><i class="bi bi-clock-history"></i></button>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+      <% if (userRole === 'admin') { %>
+      <tfoot class="table-light">
+        <tr>
+          <th colspan="7">Grand Total</th>
+          <th class="text-end">&#8369;<%= totalValue.toLocaleString('en-PH', {minimumFractionDigits:2}) %></th>
+          <th class="text-end">100%</th>
+          <th class="no-print"></th>
+        </tr>
+      </tfoot>
+      <% } %>
+    </table>
+  </div>
+</div>
+
+<!-- Audit Modal -->
+<div class="modal fade" id="auditModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5><i class="bi bi-clock-history"></i> Item Audit Log</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body p-0" id="auditBody"><div class="p-3 text-center">Loading...</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const userRole = '<%= userRole %>';
+const allTotalValue = <%= allTotalValue %>;
+const filteredTotalValue = <%= totalValue %>;
+
+<% if (Object.keys(byCategory).length > 1) { %>
+document.addEventListener('DOMContentLoaded', function() {
+  const catData = <%- JSON.stringify(byCategory) %>;
+  const labels = Object.keys(catData);
+  const values = Object.values(catData);
+  const colors = ['#4a2c2a','#6b4423','#8b6914','#2d6a4f','#1d3557','#e63946','#457b9d','#f4a261','#a8dadc','#264653'];
+  
+  new Chart(document.getElementById('valuationChart'), {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{ data: values, backgroundColor: colors.slice(0, labels.length) }]
+    },
+    options: { 
+      responsive: true, 
+      plugins: { 
+        legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              const val = ctx.raw;
+              const pct = allTotalValue > 0 ? (val/allTotalValue*100).toFixed(1) : 0;
+              return '₱' + val.toLocaleString() + ' (' + pct + '%)';
+            }
+          }
+        }
+      } 
+    }
+  });
+});
+<% } %>
+
+async function viewAudit(id) {
+  document.getElementById('auditBody').innerHTML = '<div class="p-3 text-center"><div class="spinner-border spinner-border-sm"></div> Loading...</div>';
+  new bootstrap.Modal(document.getElementById('auditModal')).show();
+  try {
+    const res = await fetch('/inventory/' + id + '/history');
+    const data = await res.json();
+    
+    const actionLabels = {
+      'initial': 'Initial', 'restock': 'Restock', 'wastage': 'Wastage',
+      'adjustment': 'Correction', 'sale_deduction': 'Sale', 'import': 'Import',
+      'po_received': 'PO Received'
+    };
+    const actionClasses = {
+      'initial': 'primary', 'restock': 'success', 'wastage': 'danger',
+      'adjustment': 'warning', 'sale_deduction': 'info', 'import': 'secondary',
+      'po_received': 'success'
+    };
+    
+    let html = '<table class="table table-sm mb-0"><thead class="table-light"><tr><th>Date</th><th>Action</th><th>Change</th><th>Before</th><th>After</th><th>Reason</th><th>By</th></tr></thead><tbody>';
+    if (data.logs && data.logs.length > 0) {
+      data.logs.forEach(log => {
+        const d = new Date(log.created_at);
+        const shortDate = d.toLocaleDateString('en-US', {month:'short', day:'numeric'}) + ' ' + d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+        const changeClass = log.quantity_change > 0 ? 'text-success' : log.quantity_change < 0 ? 'text-danger' : 'text-muted';
+        const actionLabel = actionLabels[log.action] || log.action;
+        const actionClass = actionClasses[log.action] || 'secondary';
+        html += '<tr><td><small>' + shortDate + '</small></td><td><span class="badge bg-' + actionClass + '">' + actionLabel + '</span></td>';
+        html += '<td class="' + changeClass + '">' + (log.quantity_change > 0 ? '+' : '') + log.quantity_change.toFixed(2) + '</td>';
+        html += '<td>' + log.quantity_before.toFixed(2) + '</td><td>' + log.quantity_after.toFixed(2) + '</td>';
+        html += '<td><small>' + (log.reason || '-') + '</small></td><td><small>' + (log.user_name || '-') + '</small></td></tr>';
+      });
+    } else {
+      html += '<tr><td colspan="7" class="text-center text-muted py-3">No history found</td></tr>';
+    }
+    html += '</tbody></table>';
+    document.getElementById('auditBody').innerHTML = html;
+  } catch (err) {
+    document.getElementById('auditBody').innerHTML = '<div class="p-3 text-center text-danger">Error loading audit log</div>';
+  }
+}
+
+function exportCSV() {
+  const items = <%- JSON.stringify(items) %>;
+  let csv = 'Item,Category,Stock,Unit,Reorder Level,Status';
+  if (userRole === 'admin') csv += ',Cost/Unit,Total Value,% of Total';
+  csv += '\n';
+  
+  items.forEach(item => {
+    const status = item.quantity <= 0 ? 'Out of Stock' : item.quantity <= item.reorder_level ? 'Low Stock' : 'In-Stock';
+    const pct = allTotalValue > 0 ? (item.total_value / allTotalValue * 100).toFixed(1) : 0;
+    csv += '"' + (item.name || '').replace(/"/g, '""') + '","' + (item.category || '') + '",' + item.quantity.toFixed(2) + ',"' + item.unit + '",' + item.reorder_level + ',"' + status + '"';
+    if (userRole === 'admin') csv += ',' + item.cost_per_unit.toFixed(2) + ',' + item.total_value.toFixed(2) + ',' + pct + '%';
+    csv += '\n';
+  });
+  
+  // Add total row
+  if (userRole === 'admin') {
+    csv += '"TOTAL",,,,,,,' + filteredTotalValue.toFixed(2) + ',100%\n';
+  }
+  
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'inventory_valuation_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>

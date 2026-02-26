@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= typeof title !== 'undefined' ? title + ' | ' : '' %>Señorito Cafe POS</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#4a2c2a">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="/css/style.css" rel="stylesheet">
+</head>
+<body>
+  <% if (typeof currentUser !== 'undefined' && currentUser) { %>
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h4><i class="bi bi-cup-hot-fill"></i> Señorito</h4>
+      <small class="text-muted">Cafe POS System</small>
+    </div>
+    <nav class="sidebar-nav">
+      <% const perms = typeof userPermissions !== 'undefined' ? userPermissions : []; %>
+      <% if (perms.includes('dashboard')) { %>
+      <a href="/dashboard" class="nav-link <%= typeof title !== 'undefined' && title === 'Dashboard' ? 'active' : '' %>">
+        <i class="bi bi-speedometer2"></i> Dashboard
+      </a>
+      <% } %>
+      <% if (perms.includes('pos')) { %>
+      <a href="/pos" class="nav-link <%= typeof title !== 'undefined' && title === 'Point of Sale' ? 'active' : '' %>">
+        <i class="bi bi-cart3"></i> Point of Sale
+      </a>
+      <% } %>
+      <% if (perms.includes('order_history')) { %>
+      <a href="/pos/history" class="nav-link <%= typeof title !== 'undefined' && title === 'Order History' ? 'active' : '' %>">
+        <i class="bi bi-clock-history"></i> Order History
+      </a>
+      <% } %>
+
+      <% if (perms.includes('inventory') || perms.includes('inventory_valuation') || perms.includes('purchase_orders') || perms.includes('audit_log')) { %>
+      <div class="nav-section">Inventory</div>
+      <% } %>
+      <% if (perms.includes('inventory')) { %>
+      <a href="/inventory" class="nav-link <%= typeof title !== 'undefined' && title === 'Inventory Management' ? 'active' : '' %>">
+        <i class="bi bi-box-seam"></i> Inventory
+      </a>
+      <% } %>
+      <% if (perms.includes('inventory_valuation')) { %>
+      <a href="/inventory/valuation" class="nav-link <%= typeof title !== 'undefined' && title === 'Inventory Valuation' ? 'active' : '' %>">
+        <i class="bi bi-cash-stack"></i> Valuation Report
+      </a>
+      <% } %>
+      <% if (perms.includes('purchase_orders')) { %>
+      <a href="/purchase-orders" class="nav-link <%= typeof title !== 'undefined' && title === 'Purchase Orders' ? 'active' : '' %>">
+        <i class="bi bi-truck"></i> Purchase Orders
+      </a>
+      <% } %>
+      <% if (perms.includes('audit_log')) { %>
+      <a href="/audit-log" class="nav-link <%= typeof title !== 'undefined' && title === 'Inventory Audit Log' ? 'active' : '' %>">
+        <i class="bi bi-journal-text"></i> Audit Log
+      </a>
+      <% } %>
+
+      <% if (perms.includes('analytics') || perms.includes('expenses')) { %>
+      <div class="nav-section">Reports & Analytics</div>
+      <% } %>
+      <% if (perms.includes('analytics')) { %>
+      <a href="/analytics" class="nav-link <%= typeof title !== 'undefined' && (title === 'Sales Analytics & Reports' || title === 'Analytics Dashboard') ? 'active' : '' %>">
+        <i class="bi bi-graph-up"></i> Sales Analytics
+      </a>
+      <% } %>
+      <% if (perms.includes('expenses')) { %>
+      <a href="/expenses" class="nav-link <%= typeof title !== 'undefined' && title === 'Expense Tracking' ? 'active' : '' %>">
+        <i class="bi bi-wallet2"></i> Expenses
+      </a>
+      <% } %>
+
+      <% if (perms.includes('menu') || perms.includes('employees')) { %>
+      <div class="nav-section">Management</div>
+      <% } %>
+      <% if (perms.includes('menu')) { %>
+      <a href="/menu" class="nav-link <%= typeof title !== 'undefined' && title === 'Menu Management' ? 'active' : '' %>">
+        <i class="bi bi-menu-button-wide"></i> Menu Items
+      </a>
+      <% } %>
+      <% if (perms.includes('employees')) { %>
+      <a href="/employees" class="nav-link <%= typeof title !== 'undefined' && title === 'Employee Management' ? 'active' : '' %>">
+        <i class="bi bi-people"></i> Employees
+      </a>
+      <% } %>
+
+      <% if (perms.includes('shifts')) { %>
+      <a href="/shifts" class="nav-link <%= typeof title !== 'undefined' && title === 'Shift Management' ? 'active' : '' %>">
+        <i class="bi bi-alarm"></i> Shifts
+      </a>
+      <% } %>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <i class="bi bi-person-circle"></i>
+        <span><%= currentUser.full_name %></span>
+        <small class="badge bg-secondary"><%= currentUser.role %></small>
+      </div>
+      <a href="/logout" class="btn btn-outline-light btn-sm w-100 mt-2">
+        <i class="bi bi-box-arrow-right"></i> Logout
+      </a>
+    </div>
+  </div>
+
+  <div class="main-content" id="mainContent">
+    <div class="top-bar">
+      <button class="btn btn-link sidebar-toggle" onclick="toggleSidebar()">
+        <i class="bi bi-list"></i>
+      </button>
+      <div class="d-flex align-items-center gap-3">
+        <span class="online-status" id="onlineStatus">
+          <i class="bi bi-wifi" id="statusIcon"></i> <span id="statusText">Online</span>
+        </span>
+        <span class="text-muted" id="currentDateTime"></span>
+      </div>
+    </div>
+    <div class="content-area">
+      <%- body %>
+    </div>
+  </div>
+  <% } else { %>
+    <%- body %>
+  <% } %>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="/js/app.js"></script>
+  <% if (typeof extraScripts !== 'undefined') { %>
+    <% extraScripts.forEach(s => { %><script src="<%= s %>"></script><% }) %>
+  <% } %>
+</body>
+</html>

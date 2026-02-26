@@ -1,0 +1,104 @@
+<% layout('layout') -%>
+
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h3><i class="bi bi-shop"></i> Third-Party Sales Import</h3>
+  <div class="d-flex gap-2">
+    <input type="month" id="filterMonth" class="form-control" value="<%= month %>" onchange="window.location.href='/third-party?month='+this.value">
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSaleModal">
+      <i class="bi bi-plus-circle"></i> Add Entry
+    </button>
+  </div>
+</div>
+
+<!-- Summary -->
+<div class="row g-3 mb-4">
+  <% summary.forEach(s => { %>
+    <div class="col-md-4">
+      <div class="card">
+        <div class="card-body text-center">
+          <h5 class="text-capitalize"><%= s.platform %></h5>
+          <h4>&#8369;<%= s.total.toFixed(2) %></h4>
+          <small class="text-muted"><%= s.count %> entries | Commission: &#8369;<%= s.commission.toFixed(2) %> | Net: &#8369;<%= s.net.toFixed(2) %></small>
+        </div>
+      </div>
+    </div>
+  <% }) %>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Date</th><th>Platform</th><th>Reference</th><th>Description</th><th>Total</th><th>Commission</th><th>Net</th><th>By</th><th>Actions</th></tr></thead>
+      <tbody>
+        <% sales.forEach(s => { %>
+          <tr>
+            <td><%= s.date %></td>
+            <td><span class="badge bg-<%= s.platform==='grab'?'success':'danger' %>"><%= s.platform %></span></td>
+            <td><%= s.reference_number || '-' %></td>
+            <td><small><%= s.items_description || '-' %></small></td>
+            <td>&#8369;<%= s.total_amount.toFixed(2) %></td>
+            <td>&#8369;<%= s.commission.toFixed(2) %></td>
+            <td><strong>&#8369;<%= s.net_amount.toFixed(2) %></strong></td>
+            <td><%= s.user_name %></td>
+            <td><button class="btn btn-sm btn-outline-danger" onclick="deleteSale(<%= s.id %>)">Delete</button></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add Sale Modal -->
+<div class="modal fade" id="addSaleModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5>Add Third-Party Sale</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label">Platform *</label>
+            <select id="tpPlatform" class="form-select">
+              <option value="grab">Grab</option><option value="foodpanda">FoodPanda</option><option value="other">Other</option>
+            </select>
+          </div>
+          <div class="col-md-6"><label class="form-label">Date *</label><input type="date" id="tpDate" class="form-control" value="<%= new Date().toISOString().split('T')[0] %>"></div>
+          <div class="col-md-6"><label class="form-label">Reference #</label><input type="text" id="tpRef" class="form-control"></div>
+          <div class="col-md-6"><label class="form-label">Total Amount *</label>
+            <div class="input-group"><span class="input-group-text">&#8369;</span><input type="number" id="tpTotal" class="form-control" step="0.01" min="0.01" required></div>
+          </div>
+          <div class="col-md-6"><label class="form-label">Commission</label>
+            <div class="input-group"><span class="input-group-text">&#8369;</span><input type="number" id="tpCommission" class="form-control" step="0.01" min="0" value="0"></div>
+          </div>
+          <div class="col-12"><label class="form-label">Items Description</label><textarea id="tpItems" class="form-control" rows="2"></textarea></div>
+          <div class="col-12"><label class="form-label">Notes</label><input type="text" id="tpNotes" class="form-control"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveSale()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function saveSale() {
+  const data = {
+    platform: document.getElementById('tpPlatform').value,
+    date: document.getElementById('tpDate').value,
+    reference_number: document.getElementById('tpRef').value,
+    total_amount: document.getElementById('tpTotal').value,
+    commission: document.getElementById('tpCommission').value,
+    items_description: document.getElementById('tpItems').value,
+    notes: document.getElementById('tpNotes').value
+  };
+  const res = await fetch('/third-party', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  if (res.ok) location.reload();
+  else { const d = await res.json(); alert(d.error); }
+}
+
+async function deleteSale(id) {
+  if (!confirm('Delete this entry?')) return;
+  await fetch('/third-party/' + id, { method: 'DELETE' });
+  location.reload();
+}
+</script>

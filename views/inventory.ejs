@@ -1,0 +1,900 @@
+<% layout('layout') -%>
+
+<style>
+@media print {
+  body * { visibility: hidden; }
+  #bulkQrModal .print-area, #bulkQrModal .print-area * { visibility: visible; }
+  #bulkQrModal .print-area { position: absolute; left: 0; top: 0; width: 100%; }
+  #bulkQrModal .modal-header, #bulkQrModal .modal-footer, #bulkQrModal .mb-3 { display: none !important; }
+  .print-area .col-4 { page-break-inside: avoid; break-inside: avoid; }
+}
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-box-seam"></i> Inventory Management</h2>
+  <div class="d-flex gap-2">
+    <!-- Bulk Actions Dropdown -->
+    <div class="dropdown" id="bulkActionsDropdown" style="display:none">
+      <button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+        <i class="bi bi-check2-square"></i> Bulk Actions (<span id="selectedCount">0</span>)
+      </button>
+      <ul class="dropdown-menu">
+        <li><a class="dropdown-item" href="#" onclick="bulkRestock()"><i class="bi bi-box-arrow-in-down"></i> Bulk Restock</a></li>
+        <li><a class="dropdown-item" href="#" onclick="bulkSetReorder()"><i class="bi bi-sliders"></i> Bulk Set Reorder Level</a></li>
+        <li><a class="dropdown-item" href="#" onclick="bulkExport()"><i class="bi bi-download"></i> Export Selected</a></li>
+        <li><hr class="dropdown-divider"></li>
+        <li><a class="dropdown-item" href="#" onclick="bulkPrintQR()"><i class="bi bi-qr-code"></i> Print QR Codes</a></li>
+      </ul>
+    </div>
+    <% if (typeof currentUser !== 'undefined' && currentUser.role === 'admin') { %>
+    <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#categoryModal" title="Manage Categories">
+      <i class="bi bi-tags"></i>
+    </button>
+    <% } %>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addItemModal">
+      <i class="bi bi-plus-circle"></i> Add Item
+    </button>
+  </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="card text-center"><div class="card-body"><h4><%= summary.total %></h4><small>Total Items</small></div></div></div>
+  <div class="col-md-3"><div class="card text-center border-success"><div class="card-body text-success"><h4><%= summary.in_stock %></h4><small>In-Stock</small></div></div></div>
+  <div class="col-md-3"><div class="card text-center border-warning"><div class="card-body text-warning"><h4><%= summary.low_stock %></h4><small>Low Stock</small></div></div></div>
+  <div class="col-md-3"><div class="card text-center border-danger"><div class="card-body text-danger"><h4><%= summary.out_of_stock %></h4><small>Out of Stock</small></div></div></div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+  <div class="card-body">
+    <form class="row g-2" method="GET">
+      <div class="col-md-2">
+        <select name="category" class="form-select form-select-sm">
+          <option value="">All Categories</option>
+          <% categories.forEach(cat => { %>
+          <option value="<%= cat %>" <%= query.category === cat ? 'selected' : '' %>><%= cat %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="status" class="form-select form-select-sm">
+          <option value="">All Status</option>
+          <option value="in-stock" <%= query.status === 'in-stock' ? 'selected' : '' %>>In-Stock</option>
+          <option value="low" <%= query.status === 'low' ? 'selected' : '' %>>Low Stock</option>
+          <option value="out" <%= query.status === 'out' ? 'selected' : '' %>>Out of Stock</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="sort" class="form-select form-select-sm">
+          <option value="">Sort: Name</option>
+          <option value="critical" <%= query.sort === 'critical' ? 'selected' : '' %>>Critical First</option>
+          <option value="lowest" <%= query.sort === 'lowest' ? 'selected' : '' %>>Lowest Stock First</option>
+          <option value="value" <%= query.sort === 'value' ? 'selected' : '' %>>Highest Value</option>
+        </select>
+      </div>
+      <div class="col-md-4"><input type="text" name="search" class="form-control form-control-sm" placeholder="Search..." value="<%= query.search || '' %>"></div>
+      <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">Filter</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th style="width:40px"><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"></th>
+          <th>Name</th>
+          <th>Category</th>
+          <th>QTY</th>
+          <th>Unit</th>
+          <th>Cost/Unit</th>
+          <th>Value</th>
+          <th>Reorder</th>
+          <th>Status</th>
+          <th>Last Updated</th>
+          <th style="width:180px">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% 
+        const actionLabels = {
+          'initial': 'Initial',
+          'restock': 'Restock',
+          'wastage': 'Wastage',
+          'adjustment': 'Correction',
+          'sale_deduction': 'Sale',
+          'reorder_level_change': 'Reorder',
+          'po_received': 'PO Received',
+          'import': 'Import'
+        };
+        items.forEach(item => {
+          const status = item.quantity <= 0 ? 'Out of Stock' : item.quantity <= item.reorder_level ? 'Low Stock' : 'In-Stock';
+          const statusClass = status === 'In-Stock' ? 'success' : status === 'Low Stock' ? 'warning' : 'danger';
+          const value = (item.quantity * (item.cost_per_unit || 0)).toFixed(2);
+          const lastAction = item.last_action ? (actionLabels[item.last_action] || item.last_action) : '';
+        %>
+        <tr>
+          <td><input type="checkbox" class="item-select" value="<%= item.id %>" onchange="updateBulkActions()"></td>
+          <td><strong><%= item.name %></strong></td>
+          <td><small class="text-muted"><%= item.category || '-' %></small></td>
+          <td><%= item.quantity.toFixed(2) %></td>
+          <td><%= item.unit %></td>
+          <td>&#8369;<%= (item.cost_per_unit || 0).toFixed(2) %></td>
+          <td>&#8369;<%= value %></td>
+          <td><%= item.reorder_level %></td>
+          <td><span class="badge bg-<%= statusClass %>"><%= status %></span></td>
+          <td>
+            <small>
+              <% if (item.updated_at) { 
+                const d = new Date(item.updated_at);
+                const shortDate = d.toLocaleDateString('en-US', {month:'short', day:'numeric'}) + ', ' + d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+              %>
+              <%= shortDate %>
+              <% if (lastAction) { %><br><span class="badge bg-light text-dark"><%= lastAction %></span><% } %>
+              <% } else { %>-<% } %>
+            </small>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-primary" onclick='openLogModal(<%= JSON.stringify({id: item.id, name: item.name, quantity: item.quantity, unit: item.unit}) %>)' title="Quick Log">
+              <i class="bi bi-journal-plus"></i> Log
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="viewHistory(<%= item.id %>)" title="View History">
+              <i class="bi bi-clock-history"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" onclick='editItem(<%= JSON.stringify(item) %>)' title="Edit">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <% if (typeof currentUser !== 'undefined' && currentUser.role === 'admin') { %>
+            <div class="dropdown d-inline">
+              <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" title="More"><i class="bi bi-three-dots-vertical"></i></button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" href="#" onclick="showQR(<%= item.id %>)"><i class="bi bi-qr-code"></i> QR Code</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item text-danger" href="#" onclick="deleteItem(<%= item.id %>)"><i class="bi bi-trash"></i> Delete</a></li>
+              </ul>
+            </div>
+            <% } %>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add Item Modal (Purchase-based) -->
+<div class="modal fade" id="addItemModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5>Add Inventory Item</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="row mb-3">
+          <div class="col-6">
+            <label class="form-label">Name *</label>
+            <input type="text" id="addItemName" class="form-control" required>
+          </div>
+          <div class="col-3">
+            <label class="form-label">Unit *</label>
+            <select id="addItemUnit" class="form-select" onchange="updateCostPreview()">
+              <option value="pcs">pcs</option>
+              <option value="kg">kg</option>
+              <option value="g">g</option>
+              <option value="L">L</option>
+              <option value="ml">ml</option>
+              <option value="oz">oz</option>
+              <option value="lb">lb</option>
+              <option value="cups">cups</option>
+            </select>
+          </div>
+          <div class="col-3">
+            <label class="form-label">Category</label>
+            <select id="addItemCategory" class="form-select">
+              <option value="Ingredient">Ingredient</option>
+              <% categories.forEach(c => { if (c !== 'Ingredient') { %>
+              <option value="<%= c %>"><%= c %></option>
+              <% } }) %>
+            </select>
+          </div>
+        </div>
+        
+        <hr>
+        <h6 class="text-muted mb-3">Initial Purchase</h6>
+        <div class="row mb-3">
+          <div class="col-4">
+            <label class="form-label">Qty Purchased</label>
+            <input type="number" id="addItemQtyPurchased" class="form-control" value="0" step="any" oninput="updateCostPreview()">
+          </div>
+          <div class="col-4">
+            <label class="form-label">Purchase Unit</label>
+            <select id="addItemPurchaseUnit" class="form-select" onchange="updateCostPreview()">
+              <option value="kg">kg</option>
+              <option value="g">g</option>
+              <option value="L">L</option>
+              <option value="ml">ml</option>
+              <option value="pcs">pcs</option>
+              <option value="oz">oz</option>
+              <option value="lb">lb</option>
+              <option value="box">box</option>
+              <option value="pack">pack</option>
+            </select>
+          </div>
+          <div class="col-4">
+            <label class="form-label">Total Cost (&#8369;)</label>
+            <input type="number" id="addItemTotalCost" class="form-control" value="0" step="0.01" oninput="updateCostPreview()">
+          </div>
+        </div>
+        
+        <div class="alert alert-light border py-2 mb-3" id="costPreview">
+          <small class="d-block"><strong>Computed cost per unit:</strong> <span id="computedCostUnit">₱0.00 / pcs</span></small>
+          <small class="d-block text-muted"><strong>Per base unit:</strong> <span id="computedCostBase">₱0.00 / g</span></small>
+        </div>
+        
+        <div class="row mb-3">
+          <div class="col-6">
+            <label class="form-label">Reorder Level</label>
+            <input type="number" id="addItemReorder" class="form-control" value="10" step="any">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Supplier (optional)</label>
+            <input type="text" id="addItemSupplier" class="form-control">
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Notes (optional)</label>
+          <textarea id="addItemNotes" class="form-control" rows="2" placeholder="e.g., Initial batch from supplier X"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="addItem()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Item Modal -->
+<div class="modal fade" id="editItemModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5>Edit Item</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="editItemId">
+        <div class="row mb-3">
+          <div class="col-6">
+            <label class="form-label">Name *</label>
+            <input type="text" id="editItemName" class="form-control">
+          </div>
+          <div class="col-3">
+            <label class="form-label">Unit</label>
+            <select id="editItemUnit" class="form-select">
+              <option value="pcs">pcs</option>
+              <option value="kg">kg</option>
+              <option value="g">g</option>
+              <option value="L">L</option>
+              <option value="ml">ml</option>
+              <option value="oz">oz</option>
+              <option value="lb">lb</option>
+              <option value="cups">cups</option>
+            </select>
+          </div>
+          <div class="col-3">
+            <label class="form-label">Category</label>
+            <select id="editItemCategory" class="form-select">
+              <option value="Ingredient">Ingredient</option>
+              <% categories.forEach(c => { if (c !== 'Ingredient') { %>
+              <option value="<%= c %>"><%= c %></option>
+              <% } }) %>
+            </select>
+          </div>
+        </div>
+        <div class="row mb-3">
+          <div class="col-4">
+            <label class="form-label">Cost/Unit (&#8369;)</label>
+            <input type="number" id="editItemCost" class="form-control" step="0.01">
+          </div>
+          <div class="col-4">
+            <label class="form-label">Reorder Level</label>
+            <input type="number" id="editItemReorder" class="form-control" step="any">
+          </div>
+          <div class="col-4">
+            <label class="form-label">Supplier</label>
+            <input type="text" id="editItemSupplier" class="form-control">
+          </div>
+        </div>
+        <p class="text-muted small"><i class="bi bi-info-circle"></i> Use "Log" to adjust quantity with proper audit trail.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveItem()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Quick Log Modal (Restock/Wastage/Adjustment) -->
+<div class="modal fade" id="logModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5><i class="bi bi-journal-plus"></i> Quick Stock Log</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="logItemId">
+        <div class="mb-3">
+          <label class="form-label">Item</label>
+          <input type="text" id="logItemName" class="form-control" readonly>
+          <small class="text-muted">Current stock: <strong><span id="logCurrentStock">0</span> <span id="logCurrentUnit">pcs</span></strong></small>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Action Type</label>
+          <div class="btn-group w-100" role="group">
+            <input type="radio" class="btn-check" name="logAction" id="logRestock" value="restock" checked>
+            <label class="btn btn-outline-success" for="logRestock"><i class="bi bi-plus-circle"></i> Restock</label>
+            <input type="radio" class="btn-check" name="logAction" id="logWastage" value="wastage">
+            <label class="btn btn-outline-danger" for="logWastage"><i class="bi bi-dash-circle"></i> Wastage</label>
+            <input type="radio" class="btn-check" name="logAction" id="logAdjust" value="adjustment">
+            <label class="btn btn-outline-warning" for="logAdjust"><i class="bi bi-arrow-left-right"></i> Correct</label>
+          </div>
+          <small id="actionHelpText" class="text-muted d-block mt-1"><i class="bi bi-info-circle"></i> Add stock from delivery or purchase</small>
+        </div>
+        <div class="row mb-3">
+          <div class="col-6">
+            <label class="form-label" id="logQtyLabel">Quantity to Add</label>
+            <input type="number" id="logQty" class="form-control" step="any" placeholder="Enter amount">
+          </div>
+          <div class="col-6">
+            <label class="form-label">New Stock (preview)</label>
+            <input type="text" id="logNewStock" class="form-control" readonly>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Reason / Notes *</label>
+          <input type="text" id="logReason" class="form-control" placeholder="e.g., Weekly delivery, Physical count correction">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="submitLog()"><i class="bi bi-check-lg"></i> Save Log</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- History Modal -->
+<div class="modal fade" id="historyModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5><i class="bi bi-clock-history"></i> Stock History</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body p-0" id="historyBody"><div class="p-3 text-center">Loading...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- QR Modal -->
+<div class="modal fade" id="qrModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5>QR Code</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body text-center" id="qrBody">Loading...</div>
+  </div></div>
+</div>
+
+<!-- Bulk QR Modal -->
+<div class="modal fade" id="bulkQrModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5><i class="bi bi-qr-code"></i> Print QR Codes</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="row mb-3">
+        <div class="col-md-4">
+          <label class="form-label">Label Size</label>
+          <select id="qrSize" class="form-select" onchange="regenerateQR()">
+            <option value="120">Small (120px)</option>
+            <option value="200" selected>Medium (200px)</option>
+            <option value="280">Large (280px)</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Copies per Item</label>
+          <input type="number" id="qrCopies" class="form-control" value="1" min="1" max="10" onchange="regenerateQR()">
+        </div>
+        <div class="col-md-4 d-flex align-items-end">
+          <button class="btn btn-outline-secondary w-100" onclick="regenerateQR()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+        </div>
+      </div>
+      <hr>
+      <div id="bulkQrBody" class="row g-3 print-area">Loading...</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      <button class="btn btn-primary" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>
+    </div>
+  </div></div>
+</div>
+
+<!-- Bulk Restock Modal -->
+<div class="modal fade" id="bulkRestockModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5><i class="bi bi-box-arrow-in-down"></i> Bulk Restock</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div id="bulkRestockWarning" class="alert alert-warning d-none">
+          <i class="bi bi-exclamation-triangle"></i> <strong>Warning:</strong> Selected items have different units. The same quantity will be added to each item in their respective units.
+        </div>
+        <p class="mb-2">Adding stock to <strong><span id="bulkRestockCount">0</span> items</strong>:</p>
+        <div id="bulkRestockItemsList" class="mb-3" style="max-height:150px;overflow-y:auto;"></div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Quantity to Add *</label>
+            <input type="number" id="bulkRestockQty" class="form-control" step="any" min="0.01" placeholder="Enter quantity">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Reason *</label>
+            <input type="text" id="bulkRestockReason" class="form-control" value="Bulk restock" placeholder="e.g., Weekly delivery">
+          </div>
+        </div>
+        <p class="text-muted small mt-2"><i class="bi bi-info-circle"></i> Each item's stock will increase by this amount. Action will be logged in audit trail.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-success" onclick="submitBulkRestock()"><i class="bi bi-check-lg"></i> Confirm Restock</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Set Reorder Modal -->
+<div class="modal fade" id="bulkReorderModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5><i class="bi bi-sliders"></i> Bulk Set Reorder Level</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p class="mb-2">Setting reorder level for <strong><span id="bulkReorderCount">0</span> items</strong>:</p>
+        <div id="bulkReorderItemsList" class="mb-3" style="max-height:150px;overflow-y:auto;"></div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">New Reorder Level *</label>
+            <input type="number" id="bulkReorderLevel" class="form-control" step="any" min="0" placeholder="Minimum stock threshold">
+            <small class="text-muted">Level is in each item's own unit</small>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Reason (optional)</label>
+            <input type="text" id="bulkReorderReason" class="form-control" placeholder="e.g., Adjusted for peak season">
+          </div>
+        </div>
+        <p class="text-muted small mt-2"><i class="bi bi-info-circle"></i> Items will show "Low Stock" when quantity falls at or below this level. Change is logged in audit trail.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="submitBulkReorder()"><i class="bi bi-check-lg"></i> Apply to All</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<% if (typeof currentUser !== 'undefined' && currentUser.role === 'admin') { %>
+<!-- Category Management Modal (Admin Only) -->
+<div class="modal fade" id="categoryModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5><i class="bi bi-tags"></i> Manage Inventory Categories</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <div class="input-group">
+            <input type="text" id="newCategoryName" class="form-control" placeholder="New category name">
+            <button class="btn btn-primary" onclick="addCategory()"><i class="bi bi-plus"></i> Add</button>
+          </div>
+        </div>
+        <hr>
+        <div id="categoryList">
+          <% (inventoryCategories || []).forEach(cat => { %>
+          <div class="d-flex justify-content-between align-items-center mb-2 category-item" data-id="<%= cat.id %>">
+            <span class="category-name"><%= cat.name %></span>
+            <div>
+              <button class="btn btn-sm btn-outline-secondary" onclick="editCategory(<%= cat.id %>, '<%= cat.name %>')"><i class="bi bi-pencil"></i></button>
+              <button class="btn btn-sm btn-outline-danger" onclick="deleteCategory(<%= cat.id %>)"><i class="bi bi-trash"></i></button>
+            </div>
+          </div>
+          <% }) %>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<% } %>
+
+<script>
+const userRole = '<%= typeof currentUser !== "undefined" ? currentUser.role : "user" %>';
+
+// Unit conversion factors to base (grams for weight, ml for liquid)
+const UNIT_TO_BASE = { g: 1, kg: 1000, mg: 0.001, oz: 28.35, lb: 453.59, ml: 1, L: 1000, pcs: 1, cups: 236.588, tbsp: 14.787, tsp: 4.929 };
+const BASE_UNITS = { g: 'g', kg: 'g', mg: 'g', oz: 'g', lb: 'g', ml: 'ml', L: 'ml', cups: 'ml', tbsp: 'ml', tsp: 'ml', pcs: 'pcs' };
+
+function updateCostPreview() {
+  const qtyPurchased = parseFloat(document.getElementById('addItemQtyPurchased').value) || 0;
+  const purchaseUnit = document.getElementById('addItemPurchaseUnit').value;
+  const totalCost = parseFloat(document.getElementById('addItemTotalCost').value) || 0;
+  const stockUnit = document.getElementById('addItemUnit').value;
+  
+  if (qtyPurchased > 0 && totalCost > 0) {
+    const costPerPurchaseUnit = totalCost / qtyPurchased;
+    document.getElementById('computedCostUnit').textContent = '₱' + costPerPurchaseUnit.toFixed(2) + ' / ' + purchaseUnit;
+    
+    // Convert to base unit
+    const purchaseFactor = UNIT_TO_BASE[purchaseUnit] || 1;
+    const baseUnit = BASE_UNITS[purchaseUnit] || purchaseUnit;
+    const costPerBase = totalCost / (qtyPurchased * purchaseFactor);
+    document.getElementById('computedCostBase').textContent = '₱' + costPerBase.toFixed(4) + ' / ' + baseUnit;
+  } else {
+    document.getElementById('computedCostUnit').textContent = '₱0.00 / ' + purchaseUnit;
+    document.getElementById('computedCostBase').textContent = '₱0.00';
+  }
+}
+
+function toggleSelectAll(cb) {
+  document.querySelectorAll('.item-select').forEach(c => c.checked = cb.checked);
+  updateBulkActions();
+}
+
+function updateBulkActions() {
+  const cnt = document.querySelectorAll('.item-select:checked').length;
+  document.getElementById('bulkActionsDropdown').style.display = cnt > 0 ? 'block' : 'none';
+  document.getElementById('selectedCount').textContent = cnt;
+}
+
+function getSelectedIds() {
+  return Array.from(document.querySelectorAll('.item-select:checked')).map(c => parseInt(c.value));
+}
+
+async function showQR(id) {
+  new bootstrap.Modal(document.getElementById('qrModal')).show();
+  const res = await fetch('/inventory/qr/' + id);
+  const data = await res.json();
+  document.getElementById('qrBody').innerHTML = '<img src="' + data.qr + '" class="img-fluid mb-2"><br><strong>' + data.item.name + '</strong><br><small class="text-muted">Scan to open quick log</small>';
+}
+
+let currentQRIds = [];
+async function bulkPrintQR() {
+  currentQRIds = getSelectedIds();
+  if (currentQRIds.length === 0) return;
+  new bootstrap.Modal(document.getElementById('bulkQrModal')).show();
+  await regenerateQR();
+}
+
+async function regenerateQR() {
+  const ids = currentQRIds;
+  if (ids.length === 0) return;
+  const size = parseInt(document.getElementById('qrSize').value) || 200;
+  const copies = parseInt(document.getElementById('qrCopies').value) || 1;
+  document.getElementById('bulkQrBody').innerHTML = '<div class="text-center p-3"><div class="spinner-border"></div> Generating...</div>';
+  const res = await fetch('/inventory/qr/bulk', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids, size, copies }) });
+  const data = await res.json();
+  const imgSize = size === 120 ? '80px' : size === 280 ? '150px' : '120px';
+  let html = '';
+  data.qrCodes.forEach(qr => {
+    html += '<div class="col-4 text-center p-2 border rounded mb-2"><img src="' + qr.qr + '" style="width:' + imgSize + '"><br><small><strong>' + qr.item.name + '</strong></small><br><small class="text-muted">' + qr.item.unit + '</small></div>';
+  });
+  document.getElementById('bulkQrBody').innerHTML = html;
+}
+
+async function bulkRestock() {
+  const ids = getSelectedIds();
+  document.getElementById('bulkRestockCount').textContent = ids.length;
+  document.getElementById('bulkRestockQty').value = '';
+  document.getElementById('bulkRestockReason').value = 'Bulk restock';
+  
+  // Fetch item details
+  const res = await fetch('/inventory/bulk/info', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+  const data = await res.json();
+  
+  // Show item list
+  let html = '<div class="list-group list-group-flush">';
+  data.items.forEach(item => {
+    html += '<div class="list-group-item py-1 px-2 d-flex justify-content-between"><span>' + item.name + '</span><small class="text-muted">' + item.quantity.toFixed(2) + ' ' + item.unit + '</small></div>';
+  });
+  html += '</div>';
+  document.getElementById('bulkRestockItemsList').innerHTML = html;
+  
+  // Show warning if mixed units
+  const warning = document.getElementById('bulkRestockWarning');
+  if (data.hasMixedUnits) {
+    warning.classList.remove('d-none');
+    warning.innerHTML = '<i class="bi bi-exclamation-triangle"></i> <strong>Note:</strong> Selected items have different units (' + data.units.join(', ') + '). The same quantity will be added to each item in their respective units.';
+  } else {
+    warning.classList.add('d-none');
+  }
+  
+  new bootstrap.Modal(document.getElementById('bulkRestockModal')).show();
+}
+
+async function submitBulkRestock() {
+  const ids = getSelectedIds();
+  const qty = parseFloat(document.getElementById('bulkRestockQty').value) || 0;
+  const reason = document.getElementById('bulkRestockReason').value;
+  if (qty <= 0) { alert('Please enter a valid quantity'); return; }
+  if (!reason.trim()) { alert('Please enter a reason for this restock'); return; }
+  const res = await fetch('/inventory/bulk/restock', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids, quantity: qty, reason }) });
+  if (res.ok) { 
+    alert('Successfully restocked ' + ids.length + ' items!');
+    location.reload(); 
+  } else { 
+    const err = await res.json();
+    alert('Error: ' + (err.error || 'Unknown error')); 
+  }
+}
+
+async function bulkSetReorder() {
+  const ids = getSelectedIds();
+  document.getElementById('bulkReorderCount').textContent = ids.length;
+  document.getElementById('bulkReorderLevel').value = '';
+  document.getElementById('bulkReorderReason').value = '';
+  
+  // Fetch item details
+  const res = await fetch('/inventory/bulk/info', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+  const data = await res.json();
+  
+  // Show item list
+  let html = '<div class="list-group list-group-flush">';
+  data.items.forEach(item => {
+    html += '<div class="list-group-item py-1 px-2 d-flex justify-content-between"><span>' + item.name + ' <small class="text-muted">(' + item.unit + ')</small></span><small>Current: ' + item.reorder_level + '</small></div>';
+  });
+  html += '</div>';
+  document.getElementById('bulkReorderItemsList').innerHTML = html;
+  
+  new bootstrap.Modal(document.getElementById('bulkReorderModal')).show();
+}
+
+async function submitBulkReorder() {
+  const ids = getSelectedIds();
+  const level = parseFloat(document.getElementById('bulkReorderLevel').value);
+  const reason = document.getElementById('bulkReorderReason').value || 'Bulk reorder level update';
+  if (isNaN(level) || level < 0) { alert('Please enter a valid reorder level'); return; }
+  const res = await fetch('/inventory/bulk/reorder', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids, reorder_level: level, reason }) });
+  if (res.ok) { 
+    alert('Reorder level updated for ' + ids.length + ' items!');
+    location.reload(); 
+  } else { 
+    const err = await res.json();
+    alert('Error: ' + (err.error || 'Unknown error')); 
+  }
+}
+
+function bulkExport() {
+  const ids = getSelectedIds();
+  const link = document.createElement('a');
+  link.href = '/inventory/export?ids=' + ids.join(',');
+  link.download = 'inventory_export.csv';
+  link.click();
+  alert('Exporting ' + ids.length + ' items to CSV...');
+}
+
+async function addItem() {
+  const qtyPurchased = parseFloat(document.getElementById('addItemQtyPurchased').value) || 0;
+  const purchaseUnit = document.getElementById('addItemPurchaseUnit').value;
+  const totalCost = parseFloat(document.getElementById('addItemTotalCost').value) || 0;
+  const stockUnit = document.getElementById('addItemUnit').value;
+  
+  // Convert purchased quantity to stock unit
+  const purchaseFactor = UNIT_TO_BASE[purchaseUnit] || 1;
+  const stockFactor = UNIT_TO_BASE[stockUnit] || 1;
+  const qtyInStockUnit = (qtyPurchased * purchaseFactor) / stockFactor;
+  
+  // Compute cost per stock unit
+  const costPerUnit = qtyInStockUnit > 0 ? totalCost / qtyInStockUnit : 0;
+  
+  const body = {
+    name: document.getElementById('addItemName').value,
+    category: document.getElementById('addItemCategory').value,
+    quantity: qtyInStockUnit,
+    unit: stockUnit,
+    cost_per_unit: costPerUnit,
+    reorder_level: document.getElementById('addItemReorder').value,
+    supplier: document.getElementById('addItemSupplier').value,
+    notes: document.getElementById('addItemNotes').value
+  };
+  const res = await fetch('/inventory', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (data.success) location.reload(); else alert(data.error);
+}
+
+function editItem(item) {
+  document.getElementById('editItemId').value = item.id;
+  document.getElementById('editItemName').value = item.name;
+  document.getElementById('editItemCategory').value = item.category || 'Ingredient';
+  document.getElementById('editItemUnit').value = item.unit;
+  document.getElementById('editItemCost').value = item.cost_per_unit || 0;
+  document.getElementById('editItemReorder').value = item.reorder_level;
+  document.getElementById('editItemSupplier').value = item.supplier || '';
+  new bootstrap.Modal(document.getElementById('editItemModal')).show();
+}
+
+async function saveItem() {
+  const body = {
+    name: document.getElementById('editItemName').value,
+    category: document.getElementById('editItemCategory').value,
+    unit: document.getElementById('editItemUnit').value,
+    cost_per_unit: document.getElementById('editItemCost').value,
+    reorder_level: document.getElementById('editItemReorder').value,
+    supplier: document.getElementById('editItemSupplier').value
+  };
+  const res = await fetch('/inventory/' + document.getElementById('editItemId').value, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (data.success) location.reload(); else alert(data.error);
+}
+
+async function deleteItem(id) {
+  if (!confirm('Delete this item? This cannot be undone.')) return;
+  const res = await fetch('/inventory/' + id, { method:'DELETE' });
+  const data = await res.json();
+  if (data.success) location.reload(); else alert(data.error);
+}
+
+// Quick Log Modal
+let currentLogItem = null;
+function openLogModal(item) {
+  currentLogItem = item;
+  document.getElementById('logItemId').value = item.id;
+  document.getElementById('logItemName').value = item.name;
+  document.getElementById('logCurrentStock').textContent = item.quantity.toFixed(2);
+  document.getElementById('logCurrentUnit').textContent = item.unit;
+  document.getElementById('logQty').value = '';
+  document.getElementById('logNewStock').value = '';
+  document.getElementById('logReason').value = '';
+  document.getElementById('logRestock').checked = true;
+  new bootstrap.Modal(document.getElementById('logModal')).show();
+}
+
+document.querySelectorAll('input[name="logAction"]').forEach(radio => {
+  radio.addEventListener('change', updateLogPreview);
+});
+document.getElementById('logQty')?.addEventListener('input', updateLogPreview);
+
+function updateLogPreview() {
+  if (!currentLogItem) return;
+  const action = document.querySelector('input[name="logAction"]:checked').value;
+  const qty = parseFloat(document.getElementById('logQty').value) || 0;
+  let newStock = currentLogItem.quantity;
+  
+  // Update help text and labels based on action
+  const helpText = document.getElementById('actionHelpText');
+  const qtyLabel = document.getElementById('logQtyLabel');
+  const qtyInput = document.getElementById('logQty');
+  
+  if (action === 'restock') {
+    helpText.innerHTML = '<i class="bi bi-info-circle"></i> Add stock from delivery or purchase';
+    qtyLabel.textContent = 'Quantity to Add';
+    qtyInput.placeholder = 'Enter amount to add';
+    qtyInput.min = '0.01';
+    newStock += qty;
+  } else if (action === 'wastage') {
+    helpText.innerHTML = '<i class="bi bi-info-circle"></i> Remove stock due to spoilage, damage, or loss';
+    qtyLabel.textContent = 'Quantity to Remove';
+    qtyInput.placeholder = 'Enter amount to remove';
+    qtyInput.min = '0.01';
+    newStock -= qty;
+  } else {
+    helpText.innerHTML = '<i class="bi bi-info-circle"></i> Correct stock when physical count differs from recorded. Enter the ACTUAL quantity on hand.';
+    qtyLabel.textContent = 'Correct Stock To';
+    qtyInput.placeholder = 'Enter actual stock count';
+    qtyInput.min = '0';
+    newStock = qty;
+  }
+  
+  document.getElementById('logNewStock').value = Math.max(0, newStock).toFixed(2) + ' ' + currentLogItem.unit;
+}
+
+async function submitLog() {
+  const action = document.querySelector('input[name="logAction"]:checked').value;
+  const qty = parseFloat(document.getElementById('logQty').value);
+  const reason = document.getElementById('logReason').value;
+  
+  // Validation
+  if (isNaN(qty)) { alert('Please enter a quantity'); return; }
+  if (action === 'restock' && qty <= 0) { alert('Please enter an amount to add'); return; }
+  if (action === 'wastage' && qty <= 0) { alert('Please enter an amount to remove'); return; }
+  if (action === 'adjustment' && qty < 0) { alert('Stock cannot be negative'); return; }
+  if (!reason.trim()) { alert('Please provide a reason for this stock change'); return; }
+  
+  const res = await fetch('/inventory/' + currentLogItem.id + '/log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, quantity: qty, reason })
+  });
+  const data = await res.json();
+  if (data.success) location.reload(); else alert(data.error || 'Error saving log');
+}
+
+async function viewHistory(id) {
+  document.getElementById('historyBody').innerHTML = '<div class="p-3 text-center"><div class="spinner-border spinner-border-sm"></div> Loading...</div>';
+  new bootstrap.Modal(document.getElementById('historyModal')).show();
+  try {
+    const res = await fetch('/inventory/' + id + '/history');
+    const data = await res.json();
+    
+    // Action label mapping
+    const actionLabels = {
+      'initial': 'Initial Stock',
+      'restock': 'Restock',
+      'wastage': 'Wastage',
+      'adjustment': 'Correction',
+      'sale_deduction': 'Sale',
+      'reorder_level_change': 'Reorder Updated',
+      'po_received': 'PO Received',
+      'import': 'Import'
+    };
+    const actionClasses = {
+      'initial': 'primary',
+      'restock': 'success',
+      'wastage': 'danger',
+      'adjustment': 'warning',
+      'sale_deduction': 'info',
+      'reorder_level_change': 'secondary',
+      'po_received': 'success',
+      'import': 'secondary'
+    };
+    
+    let html = '<table class="table table-sm mb-0"><thead class="table-light"><tr><th>Date</th><th>Action</th><th>Change</th><th>Before</th><th>After</th><th>Reason</th><th>By</th></tr></thead><tbody>';
+    if (data.logs && data.logs.length > 0) {
+      data.logs.forEach(log => {
+        const d = new Date(log.created_at);
+        const shortDate = d.toLocaleDateString('en-US', {month:'short', day:'numeric'}) + ' ' + d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+        const changeClass = log.quantity_change > 0 ? 'text-success' : log.quantity_change < 0 ? 'text-danger' : 'text-muted';
+        const actionLabel = actionLabels[log.action] || log.action;
+        const actionClass = actionClasses[log.action] || 'secondary';
+        html += '<tr><td><small>' + shortDate + '</small></td><td><span class="badge bg-' + actionClass + '">' + actionLabel + '</span></td>';
+        html += '<td class="' + changeClass + '">' + (log.quantity_change > 0 ? '+' : '') + log.quantity_change.toFixed(2) + '</td>';
+        html += '<td>' + log.quantity_before.toFixed(2) + '</td><td>' + log.quantity_after.toFixed(2) + '</td>';
+        html += '<td><small>' + (log.reason || '-') + '</small></td><td><small>' + (log.user_name || '-') + '</small></td></tr>';
+      });
+    } else {
+      html += '<tr><td colspan="7" class="text-center text-muted py-3">No history found</td></tr>';
+    }
+    html += '</tbody></table>';
+    document.getElementById('historyBody').innerHTML = html;
+  } catch (err) {
+    document.getElementById('historyBody').innerHTML = '<div class="p-3 text-center text-danger">Error loading history</div>';
+  }
+}
+
+// ============ CATEGORY MANAGEMENT (Admin Only) ============
+async function addCategory() {
+  const name = document.getElementById('newCategoryName').value.trim();
+  if (!name) { alert('Please enter a category name'); return; }
+  const res = await fetch('/inventory/categories', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name }) });
+  const data = await res.json();
+  if (data.success) location.reload();
+  else alert(data.error || 'Error adding category');
+}
+
+async function editCategory(id, currentName) {
+  const newName = prompt('Edit category name:', currentName);
+  if (!newName || newName.trim() === currentName) return;
+  const res = await fetch('/inventory/categories/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: newName.trim() }) });
+  const data = await res.json();
+  if (data.success) location.reload();
+  else alert(data.error || 'Error updating category');
+}
+
+async function deleteCategory(id) {
+  if (!confirm('Delete this category? Items using it will keep their current category.')) return;
+  const res = await fetch('/inventory/categories/' + id, { method:'DELETE' });
+  const data = await res.json();
+  if (data.success) location.reload();
+  else alert(data.error || 'Error deleting category');
+}
+
+// ============ QR SCAN URL HANDLER ============
+// Handle URL parameters for QR scan redirect (e.g., ?item=5&action=log)
+document.addEventListener('DOMContentLoaded', function() {
+  const params = new URLSearchParams(window.location.search);
+  const itemId = params.get('item');
+  const action = params.get('action');
+  
+  if (itemId && action === 'log') {
+    // Find the item and open log modal
+    const items = <%- JSON.stringify(items || []) %>;
+    const item = items.find(i => i.id === parseInt(itemId));
+    if (item) {
+      setTimeout(() => openLogModal(item), 300);
+    }
+  }
+});
+</script>

@@ -1,0 +1,581 @@
+<% layout('layout') -%>
+
+<style>
+.quadrant-dot { cursor: pointer; transition: transform 0.15s; }
+.quadrant-dot:hover { transform: scale(1.2); }
+.table-row-highlight { background-color: #fff3cd !important; }
+.sortable-header { cursor: pointer; user-select: none; }
+.sortable-header:hover { color: #0d6efd; }
+.empty-state { text-align: center; padding: 3rem; color: #6c757d; }
+.cost-warning { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 0.5rem 1rem; margin-bottom: 1rem; }
+</style>
+
+<h2 class="mb-4"><i class="bi bi-graph-up"></i> Analytics Dashboard</h2>
+
+<!-- Filters Section -->
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form class="row g-2 align-items-end" method="GET" id="filterForm">
+      <div class="col-md-2">
+        <label class="form-label small mb-0">Quick Filter</label>
+        <select name="period" class="form-select form-select-sm" onchange="if(this.value!=='custom'){document.getElementById('filterForm').submit()}">
+          <option value="">All Time</option>
+          <option value="today" <%= query.period === 'today' ? 'selected' : '' %>>Today</option>
+          <option value="week" <%= query.period === 'week' ? 'selected' : '' %>>Last 7 Days</option>
+          <option value="month" <%= query.period === 'month' ? 'selected' : '' %>>Last 30 Days</option>
+          <option value="custom" <%= query.from ? 'selected' : '' %>>Custom Range</option>
+        </select>
+      </div>
+      <div class="col-md-1">
+        <label class="form-label small mb-0">From</label>
+        <input type="date" name="from" class="form-control form-control-sm" value="<%= query.from || '' %>">
+      </div>
+      <div class="col-md-1">
+        <label class="form-label small mb-0">To</label>
+        <input type="date" name="to" class="form-control form-control-sm" value="<%= query.to || '' %>">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-0">Order Source</label>
+        <select name="source" class="form-select form-select-sm">
+          <option value="all">All Sources</option>
+          <option value="in-store" <%= query.source === 'in-store' ? 'selected' : '' %>>In-store</option>
+          <option value="grab" <%= query.source === 'grab' ? 'selected' : '' %>>Grab</option>
+          <option value="foodpanda" <%= query.source === 'foodpanda' ? 'selected' : '' %>>Foodpanda</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-0">Menu Category</label>
+        <select name="category" class="form-select form-select-sm">
+          <option value="all">All Categories</option>
+          <% categories.forEach(c => { %>
+            <option value="<%= c.id %>" <%= query.category == c.id ? 'selected' : '' %>><%= c.name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <div class="form-check mt-3">
+          <input class="form-check-input" type="checkbox" name="includeMissingCost" id="includeMissingCost" <%= query.includeMissingCost === 'on' ? 'checked' : '' %>>
+          <label class="form-check-label small" for="includeMissingCost">Include items w/o cost</label>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="d-flex gap-1">
+          <button type="submit" class="btn btn-sm btn-primary flex-grow-1">Apply</button>
+          <a href="/analytics" class="btn btn-sm btn-outline-secondary">Reset</a>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<% if (missingCostCount > 0 && query.includeMissingCost !== 'on') { %>
+<div class="cost-warning d-flex align-items-center justify-content-between">
+  <div><i class="bi bi-exclamation-triangle"></i> <strong><%= missingCostCount %> items</strong> missing recipe/cost setup — excluded from profit analysis</div>
+  <a href="/menu" class="btn btn-sm btn-outline-warning">Manage Recipes</a>
+</div>
+<% } %>
+
+<% if (summary.total_orders === 0) { %>
+<!-- Empty State -->
+<div class="card">
+  <div class="empty-state">
+    <i class="bi bi-graph-down" style="font-size: 4rem;"></i>
+    <h4 class="mt-3">No sales data for selected period</h4>
+    <p class="text-muted">Try adjusting the date range or filters to see analytics.</p>
+  </div>
+</div>
+<% } else { %>
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="card"><div class="card-body text-center"><h4><%= summary.total_orders %></h4><small>Total Orders</small></div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body text-center"><h4>&#8369;<%= summary.total_revenue.toFixed(2) %></h4><small>Total Revenue</small></div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body text-center"><h4>&#8369;<%= summary.avg_order_value.toFixed(2) %></h4><small>Avg Order Value</small></div></div></div>
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <small class="text-muted">Sales by Source</small>
+      <div class="small">In-store: &#8369;<%= summary.instore_sales.toFixed(2) %></div>
+      <div class="small">Grab: &#8369;<%= summary.grab_sales.toFixed(2) %></div>
+      <div class="small">Foodpanda: &#8369;<%= summary.foodpanda_sales.toFixed(2) %></div>
+    </div></div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Sales Trend -->
+  <div class="col-md-8">
+    <div class="card"><div class="card-body">
+      <h5>Sales Trend <small class="text-muted">(<%= isShortRange ? 'Hourly' : 'Daily' %>)</small></h5>
+      <% if (salesTrend.length === 0) { %>
+        <div class="empty-state py-4"><i class="bi bi-bar-chart"></i><p class="mb-0">No trend data available</p></div>
+      <% } else { %>
+        <canvas id="salesChart" height="200"></canvas>
+      <% } %>
+    </div></div>
+  </div>
+  <!-- Top Items -->
+  <div class="col-md-4">
+    <div class="card"><div class="card-body">
+      <h5>Top Selling Items</h5>
+      <% if (topItems.length === 0) { %>
+        <div class="empty-state py-3"><p class="mb-0">No items sold</p></div>
+      <% } else { %>
+      <table class="table table-sm mb-0">
+        <thead><tr><th>Item</th><th class="text-end">Qty</th><th class="text-end">Revenue</th><th class="text-end">Profit</th></tr></thead>
+        <tbody>
+          <% topItems.forEach(item => { %>
+          <tr>
+            <td class="text-truncate" style="max-width:100px"><%= item.item_name %></td>
+            <td class="text-end"><%= item.total_qty %></td>
+            <td class="text-end">&#8369;<%= (item.total_revenue||0).toFixed(0) %></td>
+            <td class="text-end"><% if (item.has_cost) { %>&#8369;<%= item.profit.toFixed(0) %><% } else { %><span class="text-muted">—</span><% } %></td>
+          </tr>
+          <% }) %>
+        </tbody>
+      </table>
+      <% } %>
+    </div></div>
+  </div>
+</div>
+
+<!-- 2×2 Quadrant Heatmap -->
+<div class="row g-4 mt-2">
+  <div class="col-md-8">
+    <div class="card"><div class="card-body">
+      <h5>Menu Profitability Heatmap (2×2 Quadrant)</h5>
+      <p class="small text-muted mb-2">X-axis: Profit per item | Y-axis: Units Sold. Dashed lines = median thresholds. Bubble size = Revenue.</p>
+      <% 
+      // Get plottable items (cost status is 'set' or 'zero', not 'missing')
+      const plottableItems = heatmap.filter(h => h.cost_status === 'set' || h.cost_status === 'zero');
+      %>
+      <% if (plottableItems.length === 0) { %>
+        <div class="empty-state py-4" id="heatmapEmpty">
+          <i class="bi bi-pie-chart" style="font-size:2rem;"></i>
+          <p class="mb-0 mt-2">No profitability data available for the selected filters.</p>
+          <% if (missingCostCount > 0) { %>
+            <small class="text-muted">(<%= missingCostCount %> items have missing recipe costs)</small>
+          <% } %>
+        </div>
+      <% } else { %>
+        <div style="position: relative; height: 350px;">
+          <canvas id="heatmapChart"></canvas>
+        </div>
+      <% } %>
+    </div></div>
+  </div>
+  <div class="col-md-4">
+    <div class="card"><div class="card-body">
+      <h5>Quadrant Legend</h5>
+      <div class="d-flex flex-column gap-2 mb-3">
+        <div class="d-flex align-items-center gap-2"><span class="badge bg-success">&#11088;</span><small><strong>Top Performers</strong> — High Profit + High Volume</small></div>
+        <div class="d-flex align-items-center gap-2"><span class="badge bg-info">&#128640;</span><small><strong>Promote More</strong> — High Profit + Low Volume</small></div>
+        <div class="d-flex align-items-center gap-2"><span class="badge bg-warning text-dark">&#128200;</span><small><strong>Improve Pricing</strong> — Low Profit + High Volume</small></div>
+        <div class="d-flex align-items-center gap-2"><span class="badge bg-danger">&#128269;</span><small><strong>Review/Remove</strong> — Low Profit + Low Volume</small></div>
+      </div>
+      <div class="row text-center g-2">
+        <div class="col-6"><div class="p-2 bg-success bg-opacity-10 border rounded"><strong><%= quadrantCounts.topPerformers %></strong><br><small>Top Performers</small></div></div>
+        <div class="col-6"><div class="p-2 bg-info bg-opacity-10 border rounded"><strong><%= quadrantCounts.promoteMore %></strong><br><small>Promote More</small></div></div>
+        <div class="col-6"><div class="p-2 bg-warning bg-opacity-10 border rounded"><strong><%= quadrantCounts.improvePricing %></strong><br><small>Improve Pricing</small></div></div>
+        <div class="col-6"><div class="p-2 bg-danger bg-opacity-10 border rounded"><strong><%= quadrantCounts.reviewRemove %></strong><br><small>Review/Remove</small></div></div>
+      </div>
+      <% if (quadrantCounts.missing > 0) { %>
+      <div class="mt-2 p-2 bg-secondary bg-opacity-10 border rounded text-center">
+        <small class="text-muted"><%= quadrantCounts.missing %> items with missing cost</small>
+      </div>
+      <% } %>
+    </div></div>
+  </div>
+</div>
+
+<!-- Detailed Profitability Table -->
+<div class="card mt-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">Detailed Profitability Table</h5>
+    <div class="d-flex gap-2">
+      <select id="tableSort" class="form-select form-select-sm" style="width:auto" onchange="sortTable(this.value)">
+        <option value="revenue">Sort: Highest Revenue</option>
+        <option value="profit">Sort: Highest Profit/Item</option>
+        <option value="margin">Sort: Lowest Margin</option>
+        <option value="volume">Sort: Highest Units Sold</option>
+      </select>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" id="profitabilityTable">
+        <thead class="table-light">
+          <tr>
+            <th>Item</th>
+            <th>Category</th>
+            <th class="text-end">Price</th>
+            <th class="text-end">Est. Cost</th>
+            <th class="text-end">Profit/Item</th>
+            <th class="text-end">Margin %</th>
+            <th class="text-end">Units Sold</th>
+            <th class="text-end">Revenue</th>
+            <th>Quadrant</th>
+            <th>Cost Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% 
+          const sortedHeatmap = [...heatmap].sort((a,b) => b.revenue - a.revenue);
+          const quadrantBg = { topPerformers: 'success', promoteMore: 'info', improvePricing: 'warning', reviewRemove: 'danger', missing: 'secondary' };
+          sortedHeatmap.forEach(item => {
+            const bgClass = 'table-' + (quadrantBg[item.quadrantKey] || 'light');
+          %>
+          <tr class="<%= bgClass %>" data-item-id="<%= item.id %>" data-revenue="<%= item.revenue %>" data-profit="<%= item.profit_per_item %>" data-margin="<%= item.margin %>" data-volume="<%= item.volume %>">
+            <td><strong><%= item.name %></strong></td>
+            <td><small><%= item.category %></small></td>
+            <td class="text-end">&#8369;<%= item.price.toFixed(2) %></td>
+            <td class="text-end"><% if (item.cost_status !== 'missing') { %>&#8369;<%= item.estimated_cost.toFixed(2) %><% } else { %><span class="text-muted">—</span><% } %></td>
+            <td class="text-end"><% if (item.cost_status !== 'missing') { %>&#8369;<%= item.profit_per_item.toFixed(2) %><% } else { %><span class="text-muted">—</span><% } %></td>
+            <td class="text-end"><% if (item.cost_status !== 'missing') { %><%= item.margin.toFixed(1) %>%<% } else { %><span class="text-muted">—</span><% } %></td>
+            <td class="text-end"><%= item.volume %></td>
+            <td class="text-end">&#8369;<%= item.revenue.toFixed(2) %></td>
+            <td><span class="badge bg-<%= quadrantBg[item.quadrantKey] || 'secondary' %> <%= item.quadrantKey === 'improvePricing' ? 'text-dark' : '' %>"><%= item.quadrant %></span></td>
+            <td>
+              <% if (item.cost_status === 'set') { %>
+                <span class="badge bg-success-subtle text-success">Set</span>
+              <% } else if (item.cost_status === 'zero') { %>
+                <span class="badge bg-warning-subtle text-warning">Zero Cost</span>
+              <% } else { %>
+                <span class="badge bg-danger-subtle text-danger">Missing</span>
+              <% } %>
+            </td>
+          </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Category & Hourly Charts -->
+<div class="row g-4 mt-2">
+  <div class="col-md-6">
+    <div class="card"><div class="card-body">
+      <h5>Sales by Category</h5>
+      <% if (categoryBreakdown.length === 0) { %>
+        <div class="empty-state py-4"><p class="mb-0">No category data available</p></div>
+      <% } else { %>
+        <div class="row">
+          <div class="col-7"><canvas id="categoryChart" height="200"></canvas></div>
+          <div class="col-5">
+            <table class="table table-sm">
+              <thead><tr><th>Category</th><th class="text-end">Units</th><th class="text-end">Revenue</th></tr></thead>
+              <tbody>
+                <% categoryBreakdown.forEach(c => { %>
+                <tr><td><%= c.name %></td><td class="text-end"><%= c.units_sold %></td><td class="text-end">&#8369;<%= (c.revenue||0).toFixed(0) %></td></tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      <% } %>
+    </div></div>
+  </div>
+  <div class="col-md-6">
+    <div class="card"><div class="card-body">
+      <h5>Hourly Sales Pattern</h5>
+      <% if (hourlyPattern.length === 0) { %>
+        <div class="empty-state py-4"><p class="mb-0">No hourly pattern data</p></div>
+      <% } else { %>
+        <canvas id="hourlyChart" height="200"></canvas>
+      <% } %>
+    </div></div>
+  </div>
+</div>
+
+<% } %>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+<% if (summary.total_orders > 0) { %>
+// Sales Trend Chart
+<% if (salesTrend.length > 0) { %>
+new Chart(document.getElementById('salesChart'), {
+  type: 'line',
+  data: {
+    labels: <%- JSON.stringify(salesTrend.map(d => d.label)) %>,
+    datasets: [{
+      label: 'Revenue', data: <%- JSON.stringify(salesTrend.map(d => d.revenue)) %>,
+      borderColor: '#4a2c2a', backgroundColor: 'rgba(74,44,42,0.1)', fill: true, tension: 0.3
+    }, {
+      label: 'Orders', data: <%- JSON.stringify(salesTrend.map(d => d.orders)) %>,
+      borderColor: '#e67e22', yAxisID: 'y1', tension: 0.3
+    }]
+  },
+  options: {
+    scales: {
+      y: { beginAtZero: true, title: { display: true, text: 'Revenue (PHP)' } },
+      y1: { position: 'right', beginAtZero: true, title: { display: true, text: 'Orders' }, grid: { drawOnChartArea: false } }
+    }
+  }
+});
+<% } %>
+
+// 2×2 Quadrant Bubble Chart - Menu Profitability Heatmap
+(function() {
+  const canvas = document.getElementById('heatmapChart');
+  if (!canvas) {
+    console.log('Heatmap: No canvas element found (empty state shown)');
+    return;
+  }
+  
+  // Get all items from heatmap where cost is set (not missing)
+  const allItems = <%- JSON.stringify(heatmap) %>;
+  const hm = allItems.filter(function(h) { return h.cost_status === 'set' || h.cost_status === 'zero'; });
+  
+  if (hm.length === 0) {
+    console.log('Heatmap: No plottable items with cost data');
+    return;
+  }
+  
+  console.log('Heatmap: Rendering', hm.length, 'items');
+  
+  const medProfit = <%= medianProfit %>;
+  const medVolume = <%= medianVolume %>;
+  
+  // Quadrant colors
+  const colors = { 
+    topPerformers: 'rgba(25,135,84,0.75)', 
+    promoteMore: 'rgba(13,202,240,0.75)', 
+    improvePricing: 'rgba(255,193,7,0.75)', 
+    reviewRemove: 'rgba(220,53,69,0.75)',
+    missing: 'rgba(108,117,125,0.5)'
+  };
+  
+  // Calculate bubble size based on revenue (normalize to 8-35 radius)
+  const revenues = hm.map(function(i) { return i.revenue; });
+  const maxRev = Math.max.apply(null, revenues.concat([1]));
+  const minRev = Math.min.apply(null, revenues.concat([0]));
+  
+  // Group items by quadrant for datasets
+  const datasets = {};
+  hm.forEach(function(item) {
+    var qKey = item.quadrantKey || 'reviewRemove';
+    if (!datasets[qKey]) {
+      datasets[qKey] = { 
+        label: item.quadrant, 
+        data: [], 
+        backgroundColor: colors[qKey] || colors.reviewRemove,
+        borderColor: (colors[qKey] || colors.reviewRemove).replace('0.75', '1'),
+        borderWidth: 2,
+        hoverBorderWidth: 3
+      };
+    }
+    var normalized = maxRev > minRev ? (item.revenue - minRev) / (maxRev - minRev) : 0.5;
+    var radius = 8 + normalized * 27;
+    datasets[qKey].data.push({ 
+      x: item.profit_per_item, 
+      y: item.volume, 
+      r: radius,
+      name: item.name,
+      id: item.id,
+      revenue: item.revenue,
+      cost: item.estimated_cost,
+      margin: item.margin,
+      quadrant: item.quadrant,
+      costStatus: item.cost_status
+    });
+  });
+  
+  // Calculate axis bounds
+  var profits = hm.map(function(i) { return i.profit_per_item; });
+  var volumes = hm.map(function(i) { return i.volume; });
+  var xMin = Math.min.apply(null, profits) - 15;
+  var xMax = Math.max.apply(null, profits) + 15;
+  var yMin = 0;
+  var yMax = Math.max.apply(null, volumes) * 1.2 + 1;
+  
+  // Ensure axes have reasonable ranges
+  if (xMin === xMax) { xMin -= 20; xMax += 20; }
+  if (yMax <= 1) { yMax = 10; }
+  
+  var chart = new Chart(canvas, {
+    type: 'bubble',
+    data: { datasets: Object.values(datasets) },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: { boxWidth: 12, padding: 15 }
+        },
+        tooltip: {
+          callbacks: { 
+            label: function(ctx) { 
+              var d = ctx.raw;
+              var lines = [
+                d.name,
+                'Units Sold: ' + d.y,
+                'Revenue: ₱' + d.revenue.toFixed(2),
+                'Est. Cost: ₱' + d.cost.toFixed(2),
+                'Profit/Item: ₱' + d.x.toFixed(2),
+                'Margin: ' + d.margin.toFixed(1) + '%',
+                'Quadrant: ' + d.quadrant
+              ];
+              if (d.costStatus === 'zero') {
+                lines.push('⚠ Cost is zero');
+              }
+              return lines;
+            }
+          }
+        }
+      },
+      onClick: function(evt, elements) {
+        if (elements.length > 0) {
+          var dataIndex = elements[0].index;
+          var datasetIndex = elements[0].datasetIndex;
+          var itemId = chart.data.datasets[datasetIndex].data[dataIndex].id;
+          highlightTableRow(itemId);
+        }
+      },
+      scales: {
+        x: { 
+          title: { display: true, text: 'Profit per Item (₱)', font: { weight: 'bold' } },
+          min: xMin,
+          max: xMax,
+          grid: { color: 'rgba(0,0,0,0.05)' }
+        },
+        y: { 
+          title: { display: true, text: 'Units Sold', font: { weight: 'bold' } },
+          min: yMin,
+          max: yMax,
+          grid: { color: 'rgba(0,0,0,0.05)' }
+        }
+      }
+    },
+    plugins: [{
+      id: 'quadrantLines',
+      afterDraw: function(chart) {
+        var ctx = chart.ctx;
+        var xScale = chart.scales.x;
+        var yScale = chart.scales.y;
+        
+        // Draw quadrant background shading
+        var xPx = xScale.getPixelForValue(medProfit);
+        var yPx = yScale.getPixelForValue(medVolume);
+        
+        ctx.save();
+        
+        // Top-right: Top Performers (green tint)
+        ctx.fillStyle = 'rgba(25,135,84,0.05)';
+        ctx.fillRect(xPx, yScale.top, xScale.right - xPx, yPx - yScale.top);
+        
+        // Top-left: Improve Pricing (yellow tint)
+        ctx.fillStyle = 'rgba(255,193,7,0.05)';
+        ctx.fillRect(xScale.left, yScale.top, xPx - xScale.left, yPx - yScale.top);
+        
+        // Bottom-right: Promote More (blue tint)
+        ctx.fillStyle = 'rgba(13,202,240,0.05)';
+        ctx.fillRect(xPx, yPx, xScale.right - xPx, yScale.bottom - yPx);
+        
+        // Bottom-left: Review/Remove (red tint)
+        ctx.fillStyle = 'rgba(220,53,69,0.05)';
+        ctx.fillRect(xScale.left, yPx, xPx - xScale.left, yScale.bottom - yPx);
+        
+        // Draw dashed median threshold lines
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 2;
+        
+        // Vertical median line (profit threshold)
+        ctx.beginPath();
+        ctx.moveTo(xPx, yScale.top);
+        ctx.lineTo(xPx, yScale.bottom);
+        ctx.stroke();
+        
+        // Horizontal median line (volume threshold)
+        ctx.beginPath();
+        ctx.moveTo(xScale.left, yPx);
+        ctx.lineTo(xScale.right, yPx);
+        ctx.stroke();
+        
+        // Add quadrant labels in corners
+        ctx.setLineDash([]);
+        ctx.font = 'bold 10px sans-serif';
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillText('★ Top Performers', xPx + 8, yScale.top + 14);
+        ctx.fillText('⚡ Promote More', xPx + 8, yPx + 14);
+        ctx.fillText('📈 Improve Pricing', xScale.left + 8, yScale.top + 14);
+        ctx.fillText('🔍 Review/Remove', xScale.left + 8, yPx + 14);
+        
+        ctx.restore();
+      }
+    }]
+  });
+  
+  console.log('Heatmap: Chart rendered successfully');
+})();
+
+// Category Chart
+<% if (categoryBreakdown.length > 0) { %>
+new Chart(document.getElementById('categoryChart'), {
+  type: 'doughnut',
+  data: {
+    labels: <%- JSON.stringify(categoryBreakdown.map(c => c.name)) %>,
+    datasets: [{ 
+      data: <%- JSON.stringify(categoryBreakdown.map(c => c.revenue)) %>,
+      backgroundColor: ['#4a2c2a','#e67e22','#27ae60','#3498db','#9b59b6','#e74c3c','#1abc9c','#f39c12'] 
+    }]
+  },
+  options: {
+    plugins: {
+      legend: { position: 'bottom', labels: { boxWidth: 12 } }
+    }
+  }
+});
+<% } %>
+
+// Hourly Chart
+<% if (hourlyPattern.length > 0) { %>
+new Chart(document.getElementById('hourlyChart'), {
+  type: 'bar',
+  data: {
+    labels: <%- JSON.stringify(hourlyPattern.map(h => h.hour + ':00')) %>,
+    datasets: [{ 
+      label: 'Orders', 
+      data: <%- JSON.stringify(hourlyPattern.map(h => h.orders)) %>,
+      backgroundColor: 'rgba(74,44,42,0.6)' 
+    }]
+  },
+  options: { scales: { y: { beginAtZero: true } } }
+});
+<% } %>
+
+<% } %> // End if summary.total_orders > 0
+}); // End DOMContentLoaded
+
+// Global helper functions (outside DOMContentLoaded for onclick handlers)
+function highlightTableRow(itemId) {
+  document.querySelectorAll('#profitabilityTable tbody tr').forEach(tr => tr.classList.remove('table-row-highlight'));
+  const row = document.querySelector('#profitabilityTable tr[data-item-id="' + itemId + '"]');
+  if (row) {
+    row.classList.add('table-row-highlight');
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function sortTable(sortBy) {
+  const tbody = document.querySelector('#profitabilityTable tbody');
+  if (!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  
+  rows.sort((a, b) => {
+    let aVal, bVal;
+    switch(sortBy) {
+      case 'revenue': aVal = parseFloat(a.dataset.revenue) || 0; bVal = parseFloat(b.dataset.revenue) || 0; return bVal - aVal;
+      case 'profit': aVal = parseFloat(a.dataset.profit) || 0; bVal = parseFloat(b.dataset.profit) || 0; return bVal - aVal;
+      case 'margin': aVal = parseFloat(a.dataset.margin) || 0; bVal = parseFloat(b.dataset.margin) || 0; return aVal - bVal;
+      case 'volume': aVal = parseFloat(a.dataset.volume) || 0; bVal = parseFloat(b.dataset.volume) || 0; return bVal - aVal;
+      default: return 0;
+    }
+  });
+  
+  rows.forEach(row => tbody.appendChild(row));
+}
+</script>

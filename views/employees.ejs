@@ -1,0 +1,413 @@
+<% layout('layout') -%>
+
+<style>
+.perm-group { border: 1px solid #dee2e6; border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem; }
+.perm-group-header { font-weight: 600; margin-bottom: 0.5rem; color: var(--primary-color); }
+.role-preview { background: #f8f9fa; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
+.role-preview-title { font-weight: 600; margin-bottom: 0.5rem; }
+.perm-badge { font-size: 0.75rem; margin: 2px; }
+.password-toggle { cursor: pointer; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); }
+.input-password-wrapper { position: relative; }
+.username-feedback { font-size: 0.8rem; margin-top: 0.25rem; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-people"></i> Employee Management</h2>
+  <button class="btn btn-primary" onclick="openAddModal()">
+    <i class="bi bi-person-plus"></i> Add Employee
+  </button>
+</div>
+
+<div class="card">
+  <div class="card-body table-responsive">
+    <table class="table table-hover align-middle">
+      <thead>
+        <tr><th>Name</th><th>Username</th><th>Role</th><th>Contact</th><th>Shifts</th><th>Orders</th><th>Status</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        <% employees.forEach(emp => { %>
+        <tr>
+          <td><%= emp.full_name %></td>
+          <td><code><%= emp.username %></code></td>
+          <td><span class="badge bg-<%= emp.role === 'admin' ? 'danger' : emp.role === 'inventory_clerk' ? 'info' : 'primary' %>"><%= emp.role.replace('_', ' ') %></span></td>
+          <td><%= emp.contact_number || '-' %></td>
+          <td><%= emp.total_shifts %></td>
+          <td><%= emp.total_orders %></td>
+          <td><span class="badge bg-<%= emp.is_active ? 'success' : 'secondary' %>"><%= emp.is_active ? 'Active' : 'Inactive' %></span></td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary" onclick='editEmployee(<%- JSON.stringify({id:emp.id,username:emp.username,full_name:emp.full_name,role:emp.role,is_active:emp.is_active,permissions:emp.permissions,contact_number:emp.contact_number}) %>)'>
+              <i class="bi bi-pencil"></i>
+            </button>
+            <% if (emp.id !== currentUser.id) { %>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteEmployee(<%= emp.id %>, '<%= emp.full_name %>')">
+              <i class="bi bi-trash"></i>
+            </button>
+            <% } %>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add Employee Modal -->
+<div class="modal fade" id="addEmployeeModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5><i class="bi bi-person-plus"></i> Add Employee</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="row">
+          <div class="col-md-6">
+            <div class="mb-3">
+              <label class="form-label">Full Name *</label>
+              <input type="text" id="addName" class="form-control" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Username *</label>
+              <input type="text" id="addUsername" class="form-control" required oninput="checkUsername(this.value, null)">
+              <div id="addUsernameFeedback" class="username-feedback"></div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Password *</label>
+              <div class="input-password-wrapper">
+                <input type="password" id="addPassword" class="form-control" required minlength="6">
+                <i class="bi bi-eye-slash password-toggle" onclick="togglePassword('addPassword', this)"></i>
+              </div>
+              <small class="text-muted">Minimum 6 characters</small>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Confirm Password *</label>
+              <div class="input-password-wrapper">
+                <input type="password" id="addConfirmPassword" class="form-control" required oninput="validatePasswordMatch('add')">
+                <i class="bi bi-eye-slash password-toggle" onclick="togglePassword('addConfirmPassword', this)"></i>
+              </div>
+              <div id="addPasswordMatch" class="username-feedback"></div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Contact Number</label>
+              <input type="tel" id="addContact" class="form-control" placeholder="Optional">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Role *</label>
+              <select id="addRole" class="form-select" onchange="updateRolePreview('add')">
+                <option value="cashier">Cashier</option>
+                <option value="inventory_clerk">Inventory Clerk</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="role-preview">
+              <div class="role-preview-title"><i class="bi bi-key"></i> Role Default Access</div>
+              <p class="small text-muted mb-2">This role will have access to:</p>
+              <div id="addRolePreview"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="addEmployee()"><i class="bi bi-check"></i> Add Employee</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Employee Modal -->
+<div class="modal fade" id="editEmployeeModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5><i class="bi bi-pencil"></i> Edit Employee</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="editId">
+        <div class="row">
+          <div class="col-md-6">
+            <div class="mb-3">
+              <label class="form-label">Full Name *</label>
+              <input type="text" id="editName" class="form-control">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Username</label>
+              <input type="text" id="editUsername" class="form-control" disabled>
+              <small class="text-muted">Username cannot be changed</small>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">New Password</label>
+              <div class="input-password-wrapper">
+                <input type="password" id="editPassword" class="form-control" placeholder="Leave blank to keep current">
+                <i class="bi bi-eye-slash password-toggle" onclick="togglePassword('editPassword', this)"></i>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Confirm New Password</label>
+              <div class="input-password-wrapper">
+                <input type="password" id="editConfirmPassword" class="form-control" oninput="validatePasswordMatch('edit')">
+                <i class="bi bi-eye-slash password-toggle" onclick="togglePassword('editConfirmPassword', this)"></i>
+              </div>
+              <div id="editPasswordMatch" class="username-feedback"></div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Contact Number</label>
+              <input type="tel" id="editContact" class="form-control" placeholder="Optional">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Role</label>
+              <select id="editRole" class="form-select" onchange="loadRoleDefaults()">
+                <option value="cashier">Cashier</option>
+                <option value="inventory_clerk">Inventory Clerk</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div class="form-check mb-3">
+              <input type="checkbox" id="editActive" class="form-check-input" checked>
+              <label class="form-check-label" for="editActive">Active</label>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-bold"><i class="bi bi-shield-lock"></i> Custom Permissions</label>
+            <p class="small text-muted">Override default role permissions</p>
+            
+            <% Object.entries(permissionGroups).forEach(([group, perms]) => { %>
+            <div class="perm-group">
+              <div class="perm-group-header"><%= group %></div>
+              <% perms.forEach(p => { %>
+              <div class="form-check form-check-inline">
+                <input class="form-check-input perm-check" type="checkbox" value="<%= p %>" id="perm_<%= p %>">
+                <label class="form-check-label small" for="perm_<%= p %>"><%= p.replace(/_/g,' ') %></label>
+              </div>
+              <% }) %>
+            </div>
+            <% }) %>
+            
+            <button class="btn btn-sm btn-outline-secondary mt-2" onclick="loadRoleDefaults()">
+              <i class="bi bi-arrow-counterclockwise"></i> Reset to Role Defaults
+            </button>
+            
+            <div id="lockoutWarning" class="alert alert-warning mt-3 d-none">
+              <i class="bi bi-exclamation-triangle"></i> <strong>Warning:</strong> This is the last active admin account. You cannot remove critical admin permissions.
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveEmployee()"><i class="bi bi-check"></i> Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const DEFAULT_PERMS = <%- JSON.stringify(defaultPermissions) %>;
+const PERM_GROUPS = <%- JSON.stringify(permissionGroups) %>;
+const ACTIVE_ADMIN_COUNT = <%= activeAdminCount %>;
+let currentEditEmp = null;
+
+function togglePassword(inputId, icon) {
+  const input = document.getElementById(inputId);
+  if (input.type === 'password') {
+    input.type = 'text';
+    icon.classList.remove('bi-eye-slash');
+    icon.classList.add('bi-eye');
+  } else {
+    input.type = 'password';
+    icon.classList.remove('bi-eye');
+    icon.classList.add('bi-eye-slash');
+  }
+}
+
+function validatePasswordMatch(prefix) {
+  const pass = document.getElementById(prefix + 'Password').value;
+  const confirm = document.getElementById(prefix + 'ConfirmPassword').value;
+  const feedback = document.getElementById(prefix + 'PasswordMatch');
+  
+  if (!confirm) {
+    feedback.innerHTML = '';
+    return true;
+  }
+  
+  if (pass === confirm) {
+    feedback.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Passwords match</span>';
+    return true;
+  } else {
+    feedback.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle"></i> Passwords do not match</span>';
+    return false;
+  }
+}
+
+let usernameCheckTimeout;
+async function checkUsername(username, excludeId) {
+  clearTimeout(usernameCheckTimeout);
+  const feedback = document.getElementById('addUsernameFeedback');
+  
+  if (!username || username.length < 3) {
+    feedback.innerHTML = '<span class="text-muted">Enter at least 3 characters</span>';
+    return;
+  }
+  
+  feedback.innerHTML = '<span class="text-muted"><i class="bi bi-hourglass-split"></i> Checking...</span>';
+  
+  usernameCheckTimeout = setTimeout(async () => {
+    const url = '/employees/check-username?username=' + encodeURIComponent(username) + (excludeId ? '&excludeId=' + excludeId : '');
+    const res = await fetch(url);
+    const data = await res.json();
+    
+    if (data.available) {
+      feedback.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Username available</span>';
+    } else {
+      feedback.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle"></i> Username already taken</span>';
+    }
+  }, 300);
+}
+
+function updateRolePreview(prefix) {
+  const role = document.getElementById(prefix + 'Role').value;
+  const perms = DEFAULT_PERMS[role] || [];
+  const container = document.getElementById(prefix + 'RolePreview');
+  
+  let html = '<div class="d-flex flex-wrap gap-1">';
+  perms.forEach(p => {
+    html += '<span class="badge bg-secondary perm-badge">' + p.replace(/_/g, ' ') + '</span>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function openAddModal() {
+  document.getElementById('addName').value = '';
+  document.getElementById('addUsername').value = '';
+  document.getElementById('addPassword').value = '';
+  document.getElementById('addConfirmPassword').value = '';
+  document.getElementById('addContact').value = '';
+  document.getElementById('addRole').value = 'cashier';
+  document.getElementById('addUsernameFeedback').innerHTML = '';
+  document.getElementById('addPasswordMatch').innerHTML = '';
+  updateRolePreview('add');
+  new bootstrap.Modal(document.getElementById('addEmployeeModal')).show();
+}
+
+async function addEmployee() {
+  const pass = document.getElementById('addPassword').value;
+  const confirm = document.getElementById('addConfirmPassword').value;
+  
+  if (pass !== confirm) {
+    alert('Passwords do not match');
+    return;
+  }
+  if (pass.length < 6) {
+    alert('Password must be at least 6 characters');
+    return;
+  }
+  
+  const body = {
+    full_name: document.getElementById('addName').value.trim(),
+    username: document.getElementById('addUsername').value.trim(),
+    password: pass,
+    confirm_password: confirm,
+    role: document.getElementById('addRole').value,
+    contact_number: document.getElementById('addContact').value.trim() || null
+  };
+  
+  const res = await fetch('/employees', { 
+    method: 'POST', 
+    headers: {'Content-Type': 'application/json'}, 
+    body: JSON.stringify(body) 
+  });
+  const data = await res.json();
+  if (data.success) {
+    location.reload();
+  } else {
+    alert(data.error);
+  }
+}
+
+function editEmployee(emp) {
+  currentEditEmp = emp;
+  document.getElementById('editId').value = emp.id;
+  document.getElementById('editName').value = emp.full_name;
+  document.getElementById('editUsername').value = emp.username;
+  document.getElementById('editRole').value = emp.role;
+  document.getElementById('editActive').checked = emp.is_active;
+  document.getElementById('editPassword').value = '';
+  document.getElementById('editConfirmPassword').value = '';
+  document.getElementById('editContact').value = emp.contact_number || '';
+  document.getElementById('editPasswordMatch').innerHTML = '';
+  
+  // Set permissions
+  const perms = emp.permissions ? JSON.parse(emp.permissions) : DEFAULT_PERMS[emp.role] || [];
+  document.querySelectorAll('.perm-check').forEach(cb => cb.checked = perms.includes(cb.value));
+  
+  // Show lockout warning if this is the last admin
+  const warning = document.getElementById('lockoutWarning');
+  if (emp.role === 'admin' && emp.is_active && ACTIVE_ADMIN_COUNT === 1) {
+    warning.classList.remove('d-none');
+  } else {
+    warning.classList.add('d-none');
+  }
+  
+  new bootstrap.Modal(document.getElementById('editEmployeeModal')).show();
+}
+
+function loadRoleDefaults() {
+  const role = document.getElementById('editRole').value;
+  const perms = DEFAULT_PERMS[role] || [];
+  document.querySelectorAll('.perm-check').forEach(cb => cb.checked = perms.includes(cb.value));
+}
+
+async function saveEmployee() {
+  const pass = document.getElementById('editPassword').value;
+  const confirm = document.getElementById('editConfirmPassword').value;
+  
+  if (pass && pass !== confirm) {
+    alert('Passwords do not match');
+    return;
+  }
+  if (pass && pass.length < 6) {
+    alert('Password must be at least 6 characters');
+    return;
+  }
+  
+  const perms = [];
+  document.querySelectorAll('.perm-check:checked').forEach(cb => perms.push(cb.value));
+  
+  const body = {
+    full_name: document.getElementById('editName').value.trim(),
+    role: document.getElementById('editRole').value,
+    is_active: document.getElementById('editActive').checked,
+    password: pass || undefined,
+    confirm_password: confirm || undefined,
+    permissions: perms,
+    contact_number: document.getElementById('editContact').value.trim() || null
+  };
+  
+  const res = await fetch('/employees/' + document.getElementById('editId').value, { 
+    method: 'PUT', 
+    headers: {'Content-Type': 'application/json'}, 
+    body: JSON.stringify(body) 
+  });
+  const data = await res.json();
+  if (data.success) {
+    location.reload();
+  } else {
+    alert(data.error);
+  }
+}
+
+async function deleteEmployee(id, name) {
+  if (!confirm('Deactivate employee "' + name + '"?\n\nThis will prevent them from logging in.')) return;
+  
+  const res = await fetch('/employees/' + id, { method: 'DELETE' });
+  const data = await res.json();
+  if (data.success) {
+    location.reload();
+  } else {
+    alert(data.error);
+  }
+}
+
+// Initialize role preview on load
+document.addEventListener('DOMContentLoaded', function() {
+  updateRolePreview('add');
+});
+</script>

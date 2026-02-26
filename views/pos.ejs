@@ -1,0 +1,140 @@
+<% layout('layout') -%>
+
+<div class="pos-container">
+  <!-- Left: Menu Items -->
+  <div class="pos-menu">
+    <div class="pos-menu-header">
+      <input type="text" id="menuSearch" class="form-control" placeholder="Search menu items...">
+      <div class="category-tabs" id="categoryTabs">
+        <button class="cat-tab active" data-category="all">All</button>
+        <% categories.forEach(cat => { %>
+          <button class="cat-tab" data-category="<%= cat.id %>"><%= cat.name %></button>
+        <% }) %>
+      </div>
+    </div>
+    <div class="pos-items-grid" id="menuGrid">
+      <% menuItems.forEach(item => { %>
+        <div class="pos-item-card" data-id="<%= item.id %>" data-name="<%= item.name %>" data-price="<%= item.price %>" data-category="<%= item.category_id %>">
+          <div class="pos-item-name"><%= item.name %></div>
+          <div class="pos-item-price">&#8369;<%= item.price.toFixed(2) %></div>
+          <% if (item.category_name) { %>
+            <small class="pos-item-cat"><%= item.category_name %></small>
+          <% } %>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+
+  <!-- Right: Cart / Order -->
+  <div class="pos-cart">
+    <div class="pos-cart-header">
+      <h5><i class="bi bi-cart3"></i> Current Order</h5>
+      <% if (!openShift) { %>
+        <div class="alert alert-warning py-1 px-2 mb-0 small">
+          <i class="bi bi-exclamation-triangle"></i> No active shift. <a href="/shifts">Start one</a>
+        </div>
+      <% } %>
+    </div>
+
+    <div class="pos-cart-items" id="cartItems">
+      <p class="text-muted text-center py-3" id="emptyCart">Tap items to add to order</p>
+    </div>
+
+    <div class="pos-cart-summary">
+      <div class="d-flex justify-content-between mb-1">
+        <span>Subtotal</span>
+        <span id="subtotal">&#8369;0.00</span>
+      </div>
+
+      <!-- Discount Type Dropdown -->
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span>Discount</span>
+        <div class="d-flex align-items-center gap-2">
+          <select id="discountType" class="form-select form-select-sm" style="width:140px;">
+            <option value="none">None</option>
+            <option value="senior">Senior Citizen (20%)</option>
+            <option value="pwd">PWD (20%)</option>
+          </select>
+          <span id="discountAmount" class="text-danger">-&#8369;0.00</span>
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-between total-line">
+        <strong>TOTAL</strong>
+        <strong id="totalAmount">&#8369;0.00</strong>
+      </div>
+
+      <!-- Order Source -->
+      <div class="mt-2">
+        <label class="form-label small mb-1">Order Source</label>
+        <div class="btn-group w-100" role="group">
+          <input type="radio" class="btn-check" name="orderSource" id="srcInStore" value="in-store" checked>
+          <label class="btn btn-outline-secondary btn-sm" for="srcInStore">In-Store</label>
+          <input type="radio" class="btn-check" name="orderSource" id="srcGrab" value="grab">
+          <label class="btn btn-outline-secondary btn-sm" for="srcGrab">Grab</label>
+          <input type="radio" class="btn-check" name="orderSource" id="srcFoodpanda" value="foodpanda">
+          <label class="btn btn-outline-secondary btn-sm" for="srcFoodpanda">Foodpanda</label>
+        </div>
+      </div>
+
+      <!-- Payment Method -->
+      <div class="mt-2">
+        <label class="form-label small mb-1">Payment Method</label>
+        <div class="btn-group w-100" role="group" id="paymentMethodGroup">
+          <input type="radio" class="btn-check" name="paymentMethod" id="payCash" value="cash" checked>
+          <label class="btn btn-outline-secondary btn-sm" for="payCash">Cash</label>
+          <input type="radio" class="btn-check" name="paymentMethod" id="payGcash" value="gcash">
+          <label class="btn btn-outline-secondary btn-sm" for="payGcash">GCash</label>
+          <input type="radio" class="btn-check" name="paymentMethod" id="payCard" value="card">
+          <label class="btn btn-outline-secondary btn-sm" for="payCard">Card</label>
+          <input type="radio" class="btn-check" name="paymentMethod" id="payPlatform" value="platform">
+          <label class="btn btn-outline-secondary btn-sm" for="payPlatform">Platform</label>
+        </div>
+      </div>
+
+      <div class="mt-2">
+        <label class="form-label small mb-1">Amount Paid</label>
+        <div class="input-group input-group-sm">
+          <span class="input-group-text">&#8369;</span>
+          <input type="number" id="amountPaid" class="form-control" min="0" step="0.01">
+        </div>
+        <div class="d-flex justify-content-between mt-1">
+          <small>Change:</small>
+          <strong id="changeAmount">&#8369;0.00</strong>
+        </div>
+      </div>
+
+      <div class="mt-2">
+        <textarea id="orderNotes" class="form-control form-control-sm" placeholder="Order notes (optional)" rows="1"></textarea>
+      </div>
+
+      <div class="mt-2 d-grid gap-2">
+        <button class="btn btn-primary" id="processOrderBtn" disabled>
+          <i class="bi bi-check-circle"></i> Process Order
+        </button>
+        <button class="btn btn-outline-danger btn-sm" id="clearCartBtn">
+          <i class="bi bi-trash"></i> Clear
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Receipt Modal -->
+<div class="modal fade" id="receiptModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5><i class="bi bi-receipt"></i> Order Complete</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="receiptBody"></div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" onclick="printReceipt()"><i class="bi bi-printer"></i> Print</button>
+        <button class="btn btn-primary" data-bs-dismiss="modal">New Order</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/pos.js"></script>

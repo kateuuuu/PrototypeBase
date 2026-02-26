@@ -1,0 +1,110 @@
+<% layout('layout') -%>
+
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h3><i class="bi bi-clock-history"></i> Order History</h3>
+  <div class="d-flex gap-2">
+    <input type="date" id="filterDate" class="form-control" value="<%= date || '' %>">
+    <button class="btn btn-primary" onclick="filterOrders()">Filter</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Order #</th><th>Date/Time</th><th>Cashier</th><th>Items</th>
+            <th>Subtotal</th><th>Discount</th><th>Total</th><th>Payment</th><th>Source</th><th>Status</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% orders.forEach(o => { %>
+            <tr>
+              <td><strong><%= o.order_number %></strong></td>
+              <td><small><%= o.created_at %></small></td>
+              <td><%= o.cashier_name %></td>
+              <td><button class="btn btn-sm btn-link" onclick="viewOrder(<%= o.id %>)">View</button></td>
+              <td>&#8369;<%= o.subtotal.toFixed(2) %></td>
+              <td>&#8369;<%= o.discount.toFixed(2) %></td>
+              <td><strong>&#8369;<%= o.total.toFixed(2) %></strong></td>
+              <td><span class="badge bg-info"><%= o.payment_method %></span></td>
+              <td><%= o.source %></td>
+              <td>
+                <span class="badge bg-<%= o.status==='completed'?'success':o.status==='voided'?'danger':'warning' %>"><%= o.status %></span>
+              </td>
+              <td>
+                <% if (o.status === 'completed' && currentUser.role === 'admin') { %>
+                  <button class="btn btn-sm btn-outline-danger" onclick="voidOrder(<%= o.id %>)">Void</button>
+                <% } %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card-footer d-flex justify-content-between">
+    <span>Showing page <%= page %> of <%= pages %> (<%= total %> orders)</span>
+    <div>
+      <% if (page > 1) { %>
+        <a href="?page=<%= page-1 %><%= date ? '&date='+date : '' %>" class="btn btn-sm btn-outline-primary">Previous</a>
+      <% } %>
+      <% if (page < pages) { %>
+        <a href="?page=<%= page+1 %><%= date ? '&date='+date : '' %>" class="btn btn-sm btn-outline-primary">Next</a>
+      <% } %>
+    </div>
+  </div>
+</div>
+
+<!-- Order Detail Modal -->
+<div class="modal fade" id="orderModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5>Order Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="orderDetailBody"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+function filterOrders() {
+  const date = document.getElementById('filterDate').value;
+  window.location.href = '/pos/history' + (date ? '?date=' + date : '');
+}
+
+async function viewOrder(id) {
+  const res = await fetch('/pos/order/' + id);
+  const data = await res.json();
+  const o = data.order;
+  let html = `<div class="receipt-detail">
+    <p><strong>Order:</strong> ${o.order_number}</p>
+    <p><strong>Date:</strong> ${o.created_at}</p>
+    <p><strong>Cashier:</strong> ${o.cashier_name}</p>
+    <hr>
+    <table class="table table-sm">
+      <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+      <tbody>`;
+  data.items.forEach(i => {
+    html += `<tr><td>${i.item_name}</td><td>${i.quantity}</td><td>₱${i.unit_price.toFixed(2)}</td><td>₱${i.total_price.toFixed(2)}</td></tr>`;
+  });
+  html += `</tbody></table><hr>
+    <p><strong>Subtotal:</strong> ₱${o.subtotal.toFixed(2)}</p>
+    <p><strong>Discount:</strong> ₱${o.discount.toFixed(2)}</p>
+    <p class="fs-5"><strong>Total: ₱${o.total.toFixed(2)}</strong></p>
+    <p><strong>Payment:</strong> ${o.payment_method} | <strong>Paid:</strong> ₱${o.amount_paid.toFixed(2)} | <strong>Change:</strong> ₱${o.change_amount.toFixed(2)}</p>
+  </div>`;
+  document.getElementById('orderDetailBody').innerHTML = html;
+  new bootstrap.Modal(document.getElementById('orderModal')).show();
+}
+
+async function voidOrder(id) {
+  if (!confirm('Are you sure you want to void this order? Inventory will be restored.')) return;
+  const res = await fetch('/pos/void/' + id, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+  if (res.ok) location.reload();
+  else { const d = await res.json(); alert(d.error); }
+}
+</script>

@@ -1,0 +1,311 @@
+<% layout('layout') -%>
+
+<style>
+.change-positive { color: #198754; font-weight: bold; }
+.change-negative { color: #dc3545; font-weight: bold; }
+.change-zero { color: #6c757d; }
+.ref-link { cursor: pointer; text-decoration: underline; }
+.ref-link:hover { color: #0d6efd; }
+.cost-change { font-size: 0.85em; color: #6c757d; }
+@media print {
+  .no-print { display: none !important; }
+}
+</style>
+
+<div class="page-header d-flex justify-content-between align-items-center mb-3">
+  <h3><i class="bi bi-journal-text"></i> Inventory Audit Log</h3>
+  <div class="d-flex gap-2 no-print">
+    <button class="btn btn-outline-secondary btn-sm" onclick="exportCSV()"><i class="bi bi-download"></i> Export CSV</button>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3 no-print">
+  <div class="card-body py-2">
+    <form id="filterForm" class="row g-2 align-items-end" method="GET">
+      <!-- Search -->
+      <div class="col-md-2">
+        <label class="form-label small mb-0">Search</label>
+        <input type="text" name="search" class="form-control form-control-sm" placeholder="Item, reason, ref..." value="<%= filters.search || '' %>">
+      </div>
+      <!-- Item -->
+      <div class="col-md-2">
+        <label class="form-label small mb-0">Item</label>
+        <select name="item_id" class="form-select form-select-sm">
+          <option value="">All Items</option>
+          <% inventoryItems.forEach(ii => { %>
+            <option value="<%= ii.id %>" <%= filters.item_id == ii.id ? 'selected' : '' %>><%= ii.name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <!-- Action -->
+      <div class="col-md-2">
+        <label class="form-label small mb-0">Action</label>
+        <select name="action" class="form-select form-select-sm">
+          <option value="">All Actions</option>
+          <option value="initial" <%= filters.action === 'initial' ? 'selected' : '' %>>Initial Stock</option>
+          <option value="sale_deduction" <%= filters.action === 'sale_deduction' ? 'selected' : '' %>>POS Sale</option>
+          <option value="restock" <%= filters.action === 'restock' ? 'selected' : '' %>>Restock</option>
+          <option value="wastage" <%= filters.action === 'wastage' ? 'selected' : '' %>>Wastage</option>
+          <option value="adjustment" <%= filters.action === 'adjustment' ? 'selected' : '' %>>Correction</option>
+          <option value="po_received" <%= filters.action === 'po_received' ? 'selected' : '' %>>PO Received</option>
+          <option value="import" <%= filters.action === 'import' ? 'selected' : '' %>>Import</option>
+          <option value="platform_sale" <%= filters.action === 'platform_sale' ? 'selected' : '' %>>Platform Sale</option>
+        </select>
+      </div>
+      <!-- Source -->
+      <div class="col-md-1">
+        <label class="form-label small mb-0">Source</label>
+        <select name="source" class="form-select form-select-sm">
+          <option value="">All</option>
+          <% sources.forEach(s => { %>
+            <option value="<%= s %>" <%= filters.source === s ? 'selected' : '' %>><%= s %></option>
+          <% }) %>
+        </select>
+      </div>
+      <!-- User -->
+      <div class="col-md-1">
+        <label class="form-label small mb-0">By</label>
+        <select name="user_id" class="form-select form-select-sm">
+          <option value="">All</option>
+          <% users.forEach(u => { %>
+            <option value="<%= u.id %>" <%= filters.user_id == u.id ? 'selected' : '' %>><%= u.full_name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <!-- Date Range -->
+      <div class="col-md-1">
+        <label class="form-label small mb-0">From</label>
+        <input type="date" name="date_from" class="form-control form-control-sm" value="<%= filters.date_from || '' %>">
+      </div>
+      <div class="col-md-1">
+        <label class="form-label small mb-0">To</label>
+        <input type="date" name="date_to" class="form-control form-control-sm" value="<%= filters.date_to || '' %>">
+      </div>
+      <!-- Buttons -->
+      <div class="col-md-2">
+        <div class="d-flex gap-1">
+          <button type="submit" class="btn btn-primary btn-sm flex-grow-1">Filter</button>
+          <a href="/audit-log" class="btn btn-outline-secondary btn-sm">Reset</a>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Summary -->
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <small class="text-muted"><%= total %> entries found</small>
+  <div class="form-check form-switch no-print">
+    <input class="form-check-input" type="checkbox" id="groupByRef" <%= filters.group_by === 'reference' ? 'checked' : '' %> onchange="toggleGrouping()">
+    <label class="form-check-label small" for="groupByRef">Group by Reference</label>
+  </div>
+</div>
+
+<!-- Audit Log Table -->
+<div class="card">
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-hover table-sm mb-0" id="auditTable">
+      <thead class="table-light">
+        <tr>
+          <th>Date/Time</th>
+          <th>Item</th>
+          <th>Action</th>
+          <th>Source</th>
+          <th class="text-end">Change</th>
+          <th class="text-end">Before</th>
+          <th class="text-end">After</th>
+          <th>Reason</th>
+          <th>Reference</th>
+          <th>By</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (logs.length === 0) { %>
+        <tr><td colspan="10" class="text-center text-muted py-4">No audit log entries found</td></tr>
+        <% } %>
+        <% 
+        const actionLabels = {
+          'initial': 'Initial Stock', 'restock': 'Restock', 'wastage': 'Wastage',
+          'adjustment': 'Correction', 'sale_deduction': 'POS Sale', 'import': 'Import',
+          'po_received': 'PO Received', 'po_cancelled': 'PO Cancelled', 'platform_sale': 'Platform Sale'
+        };
+        const actionClasses = {
+          'initial': 'primary', 'restock': 'success', 'wastage': 'danger',
+          'adjustment': 'warning', 'sale_deduction': 'info', 'import': 'secondary',
+          'po_received': 'success', 'po_cancelled': 'danger', 'platform_sale': 'info'
+        };
+        const sourceClasses = {
+          'POS': 'primary', 'Inventory': 'secondary', 'Purchase Orders': 'success', 'Import': 'info', 'System': 'dark'
+        };
+        logs.forEach(log => { 
+          const changeClass = log.quantity_change > 0 ? 'change-positive' : log.quantity_change < 0 ? 'change-negative' : 'change-zero';
+          const changeSign = log.quantity_change > 0 ? '+' : '';
+          const actionLabel = actionLabels[log.action] || log.action;
+          const actionClass = actionClasses[log.action] || 'secondary';
+          const sourceClass = sourceClasses[log.source] || 'secondary';
+          const refType = log.reference_id ? (log.reference_id.startsWith('PO-') ? 'po' : log.reference_id.startsWith('ORD-') ? 'order' : 'item') : null;
+        %>
+          <tr>
+            <td><small><%= new Date(log.created_at).toLocaleString('en-PH', {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) %></small></td>
+            <td>
+              <a href="/inventory?item=<%= log.inventory_item_id %>&action=log" class="text-decoration-none"><%= log.item_name %></a>
+            </td>
+            <td><span class="badge bg-<%= actionClass %>"><%= actionLabel %></span></td>
+            <td><span class="badge bg-<%= sourceClass %> bg-opacity-75"><small><%= log.source || 'Inventory' %></small></span></td>
+            <td class="text-end <%= changeClass %>">
+              <%= changeSign %><%= log.quantity_change.toFixed(2) %> <%= log.unit %>
+              <% if (log.cost_before !== null && log.cost_after !== null && log.action === 'po_received') { %>
+              <div class="cost-change">
+                Cost: &#8369;<%= log.cost_before.toFixed(2) %> → &#8369;<%= log.cost_after.toFixed(2) %>
+                <% if (log.cost_method) { %><br><small>(<%= log.cost_method %>)</small><% } %>
+              </div>
+              <% } %>
+            </td>
+            <td class="text-end"><%= log.quantity_before.toFixed(2) %></td>
+            <td class="text-end"><%= log.quantity_after.toFixed(2) %></td>
+            <td><small><%= log.reason || '-' %></small></td>
+            <td>
+              <% if (log.reference_id) { %>
+                <% if (refType === 'po') { %>
+                  <a href="#" class="ref-link" onclick="viewPO('<%= log.reference_id %>')"><small><%= log.reference_id %></small></a>
+                <% } else if (refType === 'order') { %>
+                  <a href="#" class="ref-link" onclick="viewOrder('<%= log.reference_id %>')"><small><%= log.reference_id %></small></a>
+                <% } else { %>
+                  <a href="/inventory?item=<%= log.inventory_item_id %>&action=log" class="ref-link"><small><%= log.reference_id %></small></a>
+                <% } %>
+              <% } else { %>
+                <small class="text-muted">-</small>
+              <% } %>
+            </td>
+            <td><small><%= log.user_name || 'System' %></small></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer d-flex justify-content-between">
+    <span class="text-muted">Page <%= page %> of <%= pages %></span>
+    <div class="d-flex gap-1">
+      <% 
+      const baseParams = new URLSearchParams();
+      if (filters.item_id) baseParams.set('item_id', filters.item_id);
+      if (filters.action) baseParams.set('action', filters.action);
+      if (filters.source) baseParams.set('source', filters.source);
+      if (filters.user_id) baseParams.set('user_id', filters.user_id);
+      if (filters.date_from) baseParams.set('date_from', filters.date_from);
+      if (filters.date_to) baseParams.set('date_to', filters.date_to);
+      if (filters.search) baseParams.set('search', filters.search);
+      %>
+      <% if (page > 1) { %>
+        <% baseParams.set('page', page - 1); %>
+        <a href="/audit-log?<%= baseParams.toString() %>" class="btn btn-sm btn-outline-primary"><i class="bi bi-chevron-left"></i> Prev</a>
+      <% } %>
+      <% if (page < pages) { %>
+        <% baseParams.set('page', page + 1); %>
+        <a href="/audit-log?<%= baseParams.toString() %>" class="btn btn-sm btn-outline-primary">Next <i class="bi bi-chevron-right"></i></a>
+      <% } %>
+    </div>
+  </div>
+</div>
+
+<!-- PO Details Modal -->
+<div class="modal fade" id="poModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5><i class="bi bi-truck"></i> Purchase Order Details</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="poModalBody"><div class="text-center py-4"><div class="spinner-border spinner-border-sm"></div> Loading...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Order Details Modal -->
+<div class="modal fade" id="orderModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5><i class="bi bi-receipt"></i> Order Details</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="orderModalBody"><div class="text-center py-4"><div class="spinner-border spinner-border-sm"></div> Loading...</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+function exportCSV() {
+  const params = new URLSearchParams(window.location.search);
+  params.delete('page');
+  window.location.href = '/audit-log/export?' + params.toString();
+}
+
+function toggleGrouping() {
+  const params = new URLSearchParams(window.location.search);
+  if (document.getElementById('groupByRef').checked) {
+    params.set('group_by', 'reference');
+  } else {
+    params.delete('group_by');
+  }
+  window.location.href = '/audit-log?' + params.toString();
+}
+
+async function viewPO(poNumber) {
+  document.getElementById('poModalBody').innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm"></div> Loading...</div>';
+  new bootstrap.Modal(document.getElementById('poModal')).show();
+  
+  try {
+    // Find PO by number
+    const listResp = await fetch('/purchase-orders?search=' + encodeURIComponent(poNumber));
+    const html = await listResp.text();
+    
+    // Try to get PO details via JSON endpoint - need to find ID first
+    const refResp = await fetch('/audit-log/reference/' + encodeURIComponent(poNumber));
+    const refData = await refResp.json();
+    
+    let modalHtml = '<div class="alert alert-secondary py-2"><strong>Reference:</strong> ' + poNumber + '</div>';
+    
+    if (refData.logs && refData.logs.length > 0) {
+      modalHtml += '<h6>Items affected:</h6>';
+      modalHtml += '<table class="table table-sm"><thead><tr><th>Item</th><th>Change</th><th>Before</th><th>After</th></tr></thead><tbody>';
+      refData.logs.forEach(log => {
+        const changeClass = log.quantity_change > 0 ? 'text-success' : 'text-danger';
+        const sign = log.quantity_change > 0 ? '+' : '';
+        modalHtml += '<tr><td>' + log.item_name + '</td><td class="' + changeClass + '">' + sign + log.quantity_change.toFixed(2) + ' ' + log.unit + '</td>';
+        modalHtml += '<td>' + log.quantity_before.toFixed(2) + '</td><td>' + log.quantity_after.toFixed(2) + '</td></tr>';
+      });
+      modalHtml += '</tbody></table>';
+    }
+    
+    modalHtml += '<div class="text-end"><a href="/purchase-orders?search=' + encodeURIComponent(poNumber) + '" class="btn btn-primary btn-sm">View in Purchase Orders</a></div>';
+    
+    document.getElementById('poModalBody').innerHTML = modalHtml;
+  } catch (err) {
+    document.getElementById('poModalBody').innerHTML = '<div class="alert alert-danger">Error loading PO details</div>';
+  }
+}
+
+async function viewOrder(orderRef) {
+  document.getElementById('orderModalBody').innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm"></div> Loading...</div>';
+  new bootstrap.Modal(document.getElementById('orderModal')).show();
+  
+  try {
+    const refResp = await fetch('/audit-log/reference/' + encodeURIComponent(orderRef));
+    const refData = await refResp.json();
+    
+    let modalHtml = '<div class="alert alert-secondary py-2"><strong>Order:</strong> ' + orderRef + '</div>';
+    
+    if (refData.logs && refData.logs.length > 0) {
+      modalHtml += '<h6>Ingredients deducted:</h6>';
+      modalHtml += '<table class="table table-sm"><thead><tr><th>Item</th><th>Deducted</th><th>Before</th><th>After</th></tr></thead><tbody>';
+      refData.logs.forEach(log => {
+        modalHtml += '<tr><td>' + log.item_name + '</td><td class="text-danger">' + log.quantity_change.toFixed(2) + ' ' + log.unit + '</td>';
+        modalHtml += '<td>' + log.quantity_before.toFixed(2) + '</td><td>' + log.quantity_after.toFixed(2) + '</td></tr>';
+      });
+      modalHtml += '</tbody></table>';
+    }
+    
+    modalHtml += '<div class="text-end"><a href="/pos/history?search=' + encodeURIComponent(orderRef) + '" class="btn btn-primary btn-sm">View in Sales History</a></div>';
+    
+    document.getElementById('orderModalBody').innerHTML = modalHtml;
+  } catch (err) {
+    document.getElementById('orderModalBody').innerHTML = '<div class="alert alert-danger">Error loading order details</div>';
+  }
+}
+</script>

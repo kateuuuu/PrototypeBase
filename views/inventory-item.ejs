@@ -1,0 +1,101 @@
+<% layout('layout') -%>
+
+<div class="page-header">
+  <h3><i class="bi bi-box-seam"></i> <%= item.name %></h3>
+  <a href="/inventory" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Back to Inventory</a>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-body text-center">
+        <h5>Current Stock</h5>
+        <h2 class="<%= item.quantity <= item.reorder_level ? 'text-danger' : 'text-success' %>">
+          <%= item.quantity.toFixed(2) %> <%= item.unit %>
+        </h2>
+        <small class="text-muted">Min level: <%= item.reorder_level %> <%= item.unit %></small>
+        <div class="progress mt-2">
+          <% const pct = item.reorder_level > 0 ? Math.min(100, (item.quantity / item.reorder_level) * 100) : 100; %>
+          <div class="progress-bar bg-<%= pct <= 25 ? 'danger' : pct <= 50 ? 'warning' : 'success' %>" style="width: <%= pct %>%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-body">
+        <p><strong>Category:</strong> <%= item.category %></p>
+        <p><strong>Cost/Unit:</strong> &#8369;<%= item.cost_per_unit.toFixed(2) %></p>
+        <p><strong>Total Value:</strong> &#8369;<%= (item.quantity * item.cost_per_unit).toFixed(2) %></p>
+        <p><strong>Last Updated:</strong> <%= item.updated_at %></p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-body">
+        <h6>Quick Actions</h6>
+        <form id="quickRestockForm" class="mb-2">
+          <div class="input-group input-group-sm">
+            <input type="number" id="quickQty" class="form-control" placeholder="Qty" step="0.01" min="0.01">
+            <button class="btn btn-success" type="submit"><i class="bi bi-plus"></i> Restock</button>
+          </div>
+        </form>
+        <form id="quickWastageForm">
+          <div class="input-group input-group-sm">
+            <input type="number" id="wastageQty" class="form-control" placeholder="Qty" step="0.01" min="0.01">
+            <input type="text" id="wastageReason" class="form-control" placeholder="Reason">
+            <button class="btn btn-warning" type="submit"><i class="bi bi-dash"></i> Wastage</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><i class="bi bi-journal-text"></i> Recent Stock Movements</div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead><tr><th>Date</th><th>Action</th><th>Change</th><th>Before</th><th>After</th><th>Reason</th><th>By</th></tr></thead>
+      <tbody>
+        <% recentLog.forEach(log => { %>
+          <tr>
+            <td><small><%= log.created_at %></small></td>
+            <td><span class="badge bg-<%= log.action === 'restock' ? 'success' : log.action === 'sale_deduction' ? 'primary' : log.action === 'wastage' ? 'danger' : 'secondary' %>"><%= log.action %></span></td>
+            <td class="<%= log.quantity_change >= 0 ? 'text-success' : 'text-danger' %>"><%= log.quantity_change >= 0 ? '+' : '' %><%= log.quantity_change.toFixed(2) %></td>
+            <td><%= log.quantity_before.toFixed(2) %></td>
+            <td><%= log.quantity_after.toFixed(2) %></td>
+            <td><small><%= log.reason || '-' %></small></td>
+            <td><%= log.user_name || 'System' %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+document.getElementById('quickRestockForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const qty = document.getElementById('quickQty').value;
+  if (!qty || qty <= 0) return;
+  await fetch('/inventory/restock', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ inventory_item_id: <%= item.id %>, quantity: qty, reason: 'Quick restock' })
+  });
+  location.reload();
+});
+
+document.getElementById('quickWastageForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const qty = document.getElementById('wastageQty').value;
+  const reason = document.getElementById('wastageReason').value;
+  if (!qty || qty <= 0 || !reason) return alert('Enter quantity and reason');
+  await fetch('/inventory/adjust', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ inventory_item_id: <%= item.id %>, quantity_change: -Math.abs(qty), action: 'wastage', reason })
+  });
+  location.reload();
+});
+</script>

@@ -1,0 +1,596 @@
+<% layout('layout') -%>
+
+<style>
+@media print {
+  .no-print { display: none !important; }
+  .card { border: 1px solid #ddd !important; }
+  body { font-size: 12px; }
+}
+.status-draft { background-color: #6c757d; }
+.status-ordered { background-color: #0d6efd; }
+.status-received { background-color: #198754; }
+.status-cancelled { background-color: #dc3545; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2><i class="bi bi-truck"></i> Purchase Orders</h2>
+  <button class="btn btn-primary no-print" data-bs-toggle="modal" data-bs-target="#addPOModal">
+    <i class="bi bi-plus-circle"></i> New PO
+  </button>
+</div>
+
+<!-- Search & Filters -->
+<div class="card mb-3 no-print">
+  <div class="card-body py-2">
+    <form class="row g-2 align-items-center" method="GET">
+      <div class="col-md-3">
+        <input type="text" name="search" class="form-control form-control-sm" placeholder="Search PO # or Supplier..." value="<%= query.search || '' %>">
+      </div>
+      <div class="col-md-2">
+        <select name="status" class="form-select form-select-sm">
+          <option value="all">All Statuses</option>
+          <option value="draft" <%= query.status === 'draft' ? 'selected' : '' %>>Draft</option>
+          <option value="ordered" <%= query.status === 'ordered' ? 'selected' : '' %>>Ordered</option>
+          <option value="received" <%= query.status === 'received' ? 'selected' : '' %>>Received</option>
+          <option value="cancelled" <%= query.status === 'cancelled' ? 'selected' : '' %>>Cancelled</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-primary btn-sm w-100">Filter</button>
+      </div>
+      <div class="col-md-2">
+        <a href="/purchase-orders" class="btn btn-outline-secondary btn-sm w-100">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- PO Table -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-list-ul"></i> Purchase Orders (<%= orders.length %>)</span>
+  </div>
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-hover table-sm align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>PO #</th>
+          <th>Supplier</th>
+          <th class="text-center">Items</th>
+          <th class="text-end">Total</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Expected</th>
+          <th>Received</th>
+          <th class="no-print">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (orders.length === 0) { %>
+        <tr><td colspan="9" class="text-center text-muted py-4">No purchase orders found</td></tr>
+        <% } %>
+        <% orders.forEach(po => { 
+          const statusClass = po.status === 'draft' ? 'secondary' : po.status === 'ordered' ? 'primary' : po.status === 'received' ? 'success' : 'danger';
+          const statusLabel = po.status.charAt(0).toUpperCase() + po.status.slice(1);
+        %>
+        <tr>
+          <td><strong><%= po.po_number %></strong></td>
+          <td><%= po.supplier_name %></td>
+          <td class="text-center"><%= po.item_count %></td>
+          <td class="text-end">&#8369;<%= (po.total_cost || 0).toLocaleString('en-PH', {minimumFractionDigits:2}) %></td>
+          <td><span class="badge bg-<%= statusClass %>"><%= statusLabel %></span></td>
+          <td><small><%= new Date(po.created_at).toLocaleDateString('en-PH', {month:'short', day:'numeric', year:'numeric'}) %></small></td>
+          <td><small><%= po.expected_date ? new Date(po.expected_date).toLocaleDateString('en-PH', {month:'short', day:'numeric'}) : '-' %></small></td>
+          <td><small><%= po.received_date ? new Date(po.received_date).toLocaleDateString('en-PH', {month:'short', day:'numeric'}) : '-' %></small></td>
+          <td class="no-print">
+            <div class="btn-group btn-group-sm">
+              <button class="btn btn-outline-info" onclick="viewPO(<%= po.id %>)" title="View"><i class="bi bi-eye"></i></button>
+              <% if (po.status === 'draft') { %>
+                <button class="btn btn-outline-primary" onclick="markOrdered(<%= po.id %>)" title="Mark Ordered"><i class="bi bi-send"></i></button>
+              <% } %>
+              <% if (po.status === 'ordered') { %>
+                <button class="btn btn-outline-success" onclick="showReceiveModal(<%= po.id %>, '<%= po.po_number %>', <%= po.total_cost %>)" title="Mark Received"><i class="bi bi-check2-circle"></i></button>
+              <% } %>
+              <% if (po.status !== 'received' && po.status !== 'cancelled') { %>
+                <button class="btn btn-outline-danger" onclick="cancelPO(<%= po.id %>)" title="Cancel"><i class="bi bi-x-circle"></i></button>
+              <% } %>
+            </div>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add PO Modal -->
+<div class="modal fade" id="addPOModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5><i class="bi bi-plus-circle"></i> New Purchase Order</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-md-8">
+            <label class="form-label">Supplier Name <span class="text-danger">*</span></label>
+            <input type="text" id="poSupplier" class="form-control" placeholder="Enter supplier name" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Expected Date</label>
+            <input type="date" id="poExpDate" class="form-control">
+          </div>
+        </div>
+        
+        <h6 class="mb-2"><i class="bi bi-box-seam"></i> Line Items</h6>
+        <div class="table-responsive">
+          <table class="table table-sm" id="poItemsTable">
+            <thead class="table-light">
+              <tr>
+                <th style="width:35%">Item</th>
+                <th style="width:15%">Qty</th>
+                <th style="width:10%">Unit</th>
+                <th style="width:15%">Total Cost</th>
+                <th style="width:15%">Cost/Unit</th>
+                <th style="width:10%"></th>
+              </tr>
+            </thead>
+            <tbody id="poItems">
+              <tr class="po-item-row">
+                <td>
+                  <select class="form-select form-select-sm po-item-select" onchange="updateItemUnit(this)">
+                    <option value="">Select item...</option>
+                    <% inventoryItems.forEach(item => { %>
+                    <option value="<%= item.id %>" data-unit="<%= item.unit %>"><%= item.name %></option>
+                    <% }) %>
+                  </select>
+                </td>
+                <td><input type="number" class="form-control form-control-sm po-item-qty" placeholder="0" min="0.01" step="0.01" oninput="calcLineTotal(this)"></td>
+                <td><span class="po-item-unit text-muted">-</span></td>
+                <td><input type="number" class="form-control form-control-sm po-item-total" placeholder="0.00" min="0.01" step="0.01" oninput="calcUnitCost(this)"></td>
+                <td><span class="po-item-cost text-muted">-</span></td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="removePORow(this)" title="Remove"><i class="bi bi-trash"></i></button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" onclick="addPOItemRow()"><i class="bi bi-plus"></i> Add Line</button>
+        
+        <!-- PO Summary -->
+        <div class="card bg-light mt-3">
+          <div class="card-body py-2">
+            <div class="row text-center">
+              <div class="col-4">
+                <small class="text-muted">Lines</small>
+                <h5 class="mb-0" id="poSummaryLines">1</h5>
+              </div>
+              <div class="col-4">
+                <small class="text-muted">Total Items</small>
+                <h5 class="mb-0" id="poSummaryItems">0</h5>
+              </div>
+              <div class="col-4">
+                <small class="text-muted">Grand Total</small>
+                <h5 class="mb-0 text-primary">&#8369;<span id="poSummaryTotal">0.00</span></h5>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="mt-3">
+          <label class="form-label">Notes</label>
+          <textarea id="poNotes" class="form-control" rows="2" placeholder="Optional notes..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="createPO()"><i class="bi bi-check"></i> Create PO</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- View PO Modal -->
+<div class="modal fade" id="viewPOModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5><i class="bi bi-file-text"></i> Purchase Order Details</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="viewPOBody">
+        <div class="text-center py-4"><div class="spinner-border spinner-border-sm"></div> Loading...</div>
+      </div>
+      <div class="modal-footer no-print" id="viewPOFooter"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Receive PO Modal -->
+<div class="modal fade" id="receivePOModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5><i class="bi bi-check2-circle"></i> Receive Purchase Order</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-info py-2">
+          <i class="bi bi-info-circle"></i> Receiving this PO will:
+          <ul class="mb-0 mt-1">
+            <li>Add items to inventory stock</li>
+            <li>Update unit costs based on selected method</li>
+            <li>Record audit log entries with PO reference</li>
+          </ul>
+        </div>
+        
+        <!-- PO Summary -->
+        <div class="row mb-3">
+          <div class="col-6">
+            <strong>PO:</strong> <span id="receivePONumber" class="text-primary"></span>
+          </div>
+          <div class="col-6 text-end">
+            <strong>Lines:</strong> <span id="receivePOLines" class="badge bg-secondary"></span>
+          </div>
+        </div>
+        
+        <!-- Items Preview -->
+        <div class="card bg-light mb-3">
+          <div class="card-header py-2"><small class="fw-bold"><i class="bi bi-box-seam"></i> Items to Receive</small></div>
+          <div class="card-body py-2" id="receivePOItems">
+            <div class="text-center text-muted"><small>Loading items...</small></div>
+          </div>
+        </div>
+        
+        <div class="d-flex justify-content-between align-items-center mb-3 bg-light p-2 rounded">
+          <span><strong>Total Value:</strong></span>
+          <span class="fs-5 text-success fw-bold">&#8369;<span id="receivePOTotal"></span></span>
+        </div>
+        
+        <!-- Cost Method Selection -->
+        <div class="mb-3">
+          <label class="form-label fw-bold">Cost Update Method</label>
+          <select class="form-select" id="receiveCostMethod" onchange="updateCostMethodHelp()">
+            <option value="latest" selected>Latest Cost (overwrite existing)</option>
+            <option value="weighted">Weighted Average</option>
+          </select>
+          <div id="costMethodHelp" class="form-text mt-2">
+            <i class="bi bi-lightbulb text-warning"></i> <strong>Latest Cost:</strong> Replaces the current unit cost with this PO's cost. Best when prices change frequently.
+          </div>
+        </div>
+        
+        <input type="hidden" id="receivePOId">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-success" onclick="confirmReceive()"><i class="bi bi-check"></i> Confirm Receive</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Expense Prompt Modal -->
+<div class="modal fade" id="expenseModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5><i class="bi bi-receipt"></i> Create Expense Entry?</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>Would you like to create an expense entry for this PO?</p>
+        <div class="bg-light p-3 rounded">
+          <p class="mb-1"><strong>Amount:</strong> &#8369;<span id="expenseAmount"></span></p>
+          <p class="mb-1"><strong>Category:</strong> Inventory Purchase</p>
+          <p class="mb-0"><strong>Reference:</strong> <span id="expenseRef"></span></p>
+        </div>
+        <input type="hidden" id="expensePOId">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Skip</button>
+        <button class="btn btn-primary" onclick="createExpense()"><i class="bi bi-plus"></i> Create Expense</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const inventoryItems = <%- JSON.stringify(inventoryItems) %>;
+
+function updateItemUnit(sel) {
+  const row = sel.closest('tr');
+  const opt = sel.options[sel.selectedIndex];
+  const unit = opt.dataset.unit || '-';
+  row.querySelector('.po-item-unit').textContent = unit;
+  updateSummary();
+}
+
+function calcLineTotal(qtyInput) {
+  // When qty changes, recalculate unit cost if total is set
+  const row = qtyInput.closest('tr');
+  const qty = parseFloat(qtyInput.value) || 0;
+  const total = parseFloat(row.querySelector('.po-item-total').value) || 0;
+  if (qty > 0 && total > 0) {
+    row.querySelector('.po-item-cost').textContent = '₱' + (total / qty).toFixed(2);
+  }
+  updateSummary();
+}
+
+function calcUnitCost(totalInput) {
+  // When total changes, calculate unit cost
+  const row = totalInput.closest('tr');
+  const total = parseFloat(totalInput.value) || 0;
+  const qty = parseFloat(row.querySelector('.po-item-qty').value) || 0;
+  if (qty > 0 && total > 0) {
+    row.querySelector('.po-item-cost').textContent = '₱' + (total / qty).toFixed(2);
+  } else {
+    row.querySelector('.po-item-cost').textContent = '-';
+  }
+  updateSummary();
+}
+
+function updateSummary() {
+  const rows = document.querySelectorAll('#poItems .po-item-row');
+  let lines = 0, totalItems = 0, grandTotal = 0;
+  rows.forEach(row => {
+    const sel = row.querySelector('.po-item-select').value;
+    const qty = parseFloat(row.querySelector('.po-item-qty').value) || 0;
+    const total = parseFloat(row.querySelector('.po-item-total').value) || 0;
+    if (sel) lines++;
+    totalItems += qty;
+    grandTotal += total;
+  });
+  document.getElementById('poSummaryLines').textContent = lines;
+  document.getElementById('poSummaryItems').textContent = totalItems.toFixed(2);
+  document.getElementById('poSummaryTotal').textContent = grandTotal.toLocaleString('en-PH', {minimumFractionDigits:2});
+}
+
+function addPOItemRow() {
+  const tbody = document.getElementById('poItems');
+  const first = tbody.querySelector('.po-item-row');
+  const clone = first.cloneNode(true);
+  clone.querySelector('.po-item-select').value = '';
+  clone.querySelector('.po-item-qty').value = '';
+  clone.querySelector('.po-item-unit').textContent = '-';
+  clone.querySelector('.po-item-total').value = '';
+  clone.querySelector('.po-item-cost').textContent = '-';
+  tbody.appendChild(clone);
+  updateSummary();
+}
+
+function removePORow(btn) {
+  const rows = document.querySelectorAll('#poItems .po-item-row');
+  if (rows.length > 1) {
+    btn.closest('tr').remove();
+    updateSummary();
+  }
+}
+
+async function createPO() {
+  const supplier = document.getElementById('poSupplier').value.trim();
+  if (!supplier) { alert('Supplier name is required'); return; }
+  
+  const items = [];
+  let hasError = false;
+  document.querySelectorAll('#poItems .po-item-row').forEach((row, idx) => {
+    const sel = row.querySelector('.po-item-select').value;
+    const qty = parseFloat(row.querySelector('.po-item-qty').value) || 0;
+    const total = parseFloat(row.querySelector('.po-item-total').value) || 0;
+    
+    if (sel) {
+      if (qty <= 0) { alert(`Line ${idx+1}: Quantity must be greater than 0`); hasError = true; return; }
+      if (total <= 0) { alert(`Line ${idx+1}: Total cost must be greater than 0`); hasError = true; return; }
+      items.push({ inventory_item_id: parseInt(sel), quantity: qty, unit_cost: total / qty });
+    }
+  });
+  
+  if (hasError) return;
+  if (items.length === 0) { alert('At least one item is required'); return; }
+  
+  const body = {
+    supplier_name: supplier,
+    expected_date: document.getElementById('poExpDate').value || null,
+    items: items,
+    notes: document.getElementById('poNotes').value
+  };
+  
+  try {
+    const res = await fetch('/purchase-orders', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.success) {
+      alert(data.message || 'Purchase Order created successfully!');
+      location.reload();
+    } else {
+      alert(data.error || 'Error creating PO');
+    }
+  } catch (err) {
+    alert('Error creating PO: ' + err.message);
+  }
+}
+
+async function markOrdered(id) {
+  if (!confirm('Mark this PO as Ordered? This indicates the order has been placed with the supplier.')) return;
+  try {
+    const res = await fetch('/purchase-orders/' + id + '/order', { method:'PUT', headers:{'Content-Type':'application/json'} });
+    const data = await res.json();
+    if (data.success) location.reload(); else alert(data.error);
+  } catch (err) { alert('Error: ' + err.message); }
+}
+
+async function showReceiveModal(id, poNumber, total) {
+  document.getElementById('receivePOId').value = id;
+  document.getElementById('receivePONumber').textContent = poNumber;
+  document.getElementById('receivePOTotal').textContent = total.toLocaleString('en-PH', {minimumFractionDigits:2});
+  document.getElementById('receivePOItems').innerHTML = '<div class="text-center text-muted"><small>Loading items...</small></div>';
+  document.getElementById('receivePOLines').textContent = '...';
+  updateCostMethodHelp();
+  
+  new bootstrap.Modal(document.getElementById('receivePOModal')).show();
+  
+  // Fetch PO items for preview
+  try {
+    const res = await fetch('/purchase-orders/' + id);
+    const data = await res.json();
+    const items = data.items;
+    
+    document.getElementById('receivePOLines').textContent = items.length;
+    
+    if (items.length === 0) {
+      document.getElementById('receivePOItems').innerHTML = '<small class="text-muted">No items in this PO</small>';
+    } else {
+      let html = '<div class="small">';
+      items.forEach((item, idx) => {
+        const sign = '<span class="text-success">+' + item.quantity + '</span>';
+        html += '<div class="d-flex justify-content-between align-items-center' + (idx < items.length - 1 ? ' border-bottom pb-1 mb-1' : '') + '">';
+        html += '<span>' + item.item_name + '</span>';
+        html += '<span>' + sign + ' ' + item.unit + ' <small class="text-muted">(₱' + item.unit_cost.toFixed(2) + '/unit)</small></span>';
+        html += '</div>';
+      });
+      html += '</div>';
+      document.getElementById('receivePOItems').innerHTML = html;
+    }
+  } catch (err) {
+    document.getElementById('receivePOItems').innerHTML = '<small class="text-danger">Error loading items</small>';
+  }
+}
+
+function updateCostMethodHelp() {
+  const method = document.getElementById('receiveCostMethod').value;
+  const helpDiv = document.getElementById('costMethodHelp');
+  
+  if (method === 'latest') {
+    helpDiv.innerHTML = '<i class="bi bi-lightbulb text-warning"></i> <strong>Latest Cost:</strong> Replaces the current unit cost with this PO\'s cost. Best when prices change frequently.';
+  } else {
+    helpDiv.innerHTML = '<i class="bi bi-lightbulb text-warning"></i> <strong>Weighted Average:</strong> Blends old and new costs based on quantities. Formula: <code>(old_qty × old_cost + new_qty × new_cost) / total_qty</code>. Best for stable, averaged costing.';
+  }
+}
+
+async function confirmReceive() {
+  const id = document.getElementById('receivePOId').value;
+  const costMethod = document.getElementById('receiveCostMethod').value;
+  
+  try {
+    const res = await fetch('/purchase-orders/' + id + '/receive', { 
+      method:'PUT', 
+      headers:{'Content-Type':'application/json'}, 
+      body: JSON.stringify({ costMethod }) 
+    });
+    const data = await res.json();
+    if (data.success) {
+      bootstrap.Modal.getInstance(document.getElementById('receivePOModal')).hide();
+      
+      // Prompt for expense
+      document.getElementById('expensePOId').value = id;
+      document.getElementById('expenseAmount').textContent = data.total.toLocaleString('en-PH', {minimumFractionDigits:2});
+      document.getElementById('expenseRef').textContent = data.po_number;
+      new bootstrap.Modal(document.getElementById('expenseModal')).show();
+    } else {
+      alert(data.error);
+    }
+  } catch (err) { alert('Error: ' + err.message); }
+}
+
+async function createExpense() {
+  const id = document.getElementById('expensePOId').value;
+  try {
+    const res = await fetch('/purchase-orders/' + id + '/expense', { method:'POST', headers:{'Content-Type':'application/json'} });
+    const data = await res.json();
+    if (data.success) {
+      alert('Expense entry created!');
+      location.reload();
+    } else {
+      alert(data.error);
+      location.reload();
+    }
+  } catch (err) { 
+    alert('Error creating expense: ' + err.message); 
+    location.reload();
+  }
+}
+
+async function cancelPO(id) {
+  const reason = prompt('Enter reason for cancellation (optional):');
+  if (reason === null) return; // User clicked cancel
+  
+  try {
+    const res = await fetch('/purchase-orders/' + id + '/cancel', { 
+      method:'PUT', 
+      headers:{'Content-Type':'application/json'}, 
+      body: JSON.stringify({ reason }) 
+    });
+    const data = await res.json();
+    if (data.success) location.reload(); else alert(data.error);
+  } catch (err) { alert('Error: ' + err.message); }
+}
+
+async function viewPO(id) {
+  const modal = new bootstrap.Modal(document.getElementById('viewPOModal'));
+  document.getElementById('viewPOBody').innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm"></div> Loading...</div>';
+  document.getElementById('viewPOFooter').innerHTML = '';
+  modal.show();
+  
+  try {
+    const res = await fetch('/purchase-orders/' + id);
+    const data = await res.json();
+    const po = data.po;
+    const items = data.items;
+    
+    const statusClass = po.status === 'draft' ? 'secondary' : po.status === 'ordered' ? 'primary' : po.status === 'received' ? 'success' : 'danger';
+    const statusLabel = po.status.charAt(0).toUpperCase() + po.status.slice(1);
+    
+    let html = `
+      <div class="row mb-3">
+        <div class="col-md-6">
+          <h4 class="mb-1">${po.po_number}</h4>
+          <span class="badge bg-${statusClass}">${statusLabel}</span>
+        </div>
+        <div class="col-md-6 text-md-end">
+          <p class="mb-0"><strong>Supplier:</strong> ${po.supplier_name}</p>
+          <small class="text-muted">Created: ${new Date(po.created_at).toLocaleDateString('en-PH', {month:'short', day:'numeric', year:'numeric'})}</small>
+        </div>
+      </div>
+      <div class="row mb-3">
+        <div class="col-md-4"><small class="text-muted">Expected:</small><br>${po.expected_date ? new Date(po.expected_date).toLocaleDateString('en-PH') : '-'}</div>
+        <div class="col-md-4"><small class="text-muted">Received:</small><br>${po.received_date ? new Date(po.received_date).toLocaleDateString('en-PH') : '-'}${po.received_by_name ? '<br><small>by ' + po.received_by_name + '</small>' : ''}</div>
+        <div class="col-md-4"><small class="text-muted">Created By:</small><br>${po.created_by_name || '-'}</div>
+      </div>
+      <table class="table table-sm table-bordered">
+        <thead class="table-light">
+          <tr><th>Item</th><th class="text-end">Qty</th><th>Unit</th><th class="text-end">Cost/Unit</th><th class="text-end">Total</th></tr>
+        </thead>
+        <tbody>
+    `;
+    
+    items.forEach(i => {
+      html += `<tr>
+        <td>${i.item_name}</td>
+        <td class="text-end">${i.quantity}</td>
+        <td>${i.unit}</td>
+        <td class="text-end">₱${(i.unit_cost||0).toFixed(2)}</td>
+        <td class="text-end"><strong>₱${(i.total_cost||0).toFixed(2)}</strong></td>
+      </tr>`;
+    });
+    
+    html += `
+        </tbody>
+        <tfoot class="table-light">
+          <tr><th colspan="4" class="text-end">Grand Total:</th><th class="text-end">₱${(po.total_cost||0).toLocaleString('en-PH', {minimumFractionDigits:2})}</th></tr>
+        </tfoot>
+      </table>
+    `;
+    
+    if (po.notes) html += `<div class="alert alert-secondary py-2"><small><strong>Notes:</strong> ${po.notes}</small></div>`;
+    if (po.cancelled_date) html += `<div class="alert alert-danger py-2"><small><strong>Cancelled:</strong> ${new Date(po.cancelled_date).toLocaleDateString('en-PH')}${po.cancelled_by_name ? ' by ' + po.cancelled_by_name : ''}</small></div>`;
+    
+    document.getElementById('viewPOBody').innerHTML = html;
+    document.getElementById('viewPOFooter').innerHTML = `<button class="btn btn-outline-secondary" onclick="printPO()"><i class="bi bi-printer"></i> Print</button>`;
+    
+  } catch (err) {
+    document.getElementById('viewPOBody').innerHTML = '<div class="text-center text-danger py-4">Error loading PO details</div>';
+  }
+}
+
+function printPO() {
+  window.print();
+}
+</script>
