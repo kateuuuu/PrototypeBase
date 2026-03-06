@@ -14,9 +14,26 @@
     </div>
     <div class="pos-items-grid" id="menuGrid">
       <% menuItems.forEach(item => { %>
-        <div class="pos-item-card" data-id="<%= item.id %>" data-name="<%= item.name %>" data-price="<%= item.price %>" data-category="<%= item.category_id %>">
+        <div class="pos-item-card" 
+             data-id="<%= item.id %>" 
+             data-name="<%= item.name %>" 
+             data-price="<%= item.price %>" 
+             data-category="<%= item.category_id %>"
+             data-has-variants="<%= item.variants && item.variants.length > 0 ? 'true' : 'false' %>"
+             data-variants='<%- JSON.stringify(item.variants || []) %>'>
           <div class="pos-item-name"><%= item.name %></div>
-          <div class="pos-item-price">&#8369;<%= item.price.toFixed(2) %></div>
+          <div class="pos-item-price">
+            <% if (item.variants && item.variants.length > 0) { %>
+              <% if (item.min_price !== item.max_price) { %>
+                &#8369;<%= item.min_price.toFixed(2) %> – &#8369;<%= item.max_price.toFixed(2) %>
+              <% } else { %>
+                &#8369;<%= item.min_price.toFixed(2) %>
+              <% } %>
+              <br><small class="text-info"><%= item.variants.length %> sizes</small>
+            <% } else { %>
+              &#8369;<%= item.price.toFixed(2) %>
+            <% } %>
+          </div>
           <% if (item.category_name) { %>
             <small class="pos-item-cat"><%= item.category_name %></small>
           <% } %>
@@ -137,4 +154,42 @@
   </div>
 </div>
 
+<!-- Variant Selection Modal -->
+<div class="modal fade" id="variantModal" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="mb-0" id="variantModalTitle">Select Size</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-2" id="variantModalBody">
+        <!-- Variant options will be inserted here -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add-Ons Selection Modal -->
+<div class="modal fade" id="addonsSelectionModal" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="mb-0">Customize</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-2" id="addonsSelectionBody">
+        <!-- Add-ons will be inserted here -->
+      </div>
+      <div class="modal-footer py-1">
+        <button class="btn btn-primary btn-sm" onclick="confirmAddons()">Add to Cart</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Pass menu items with variants to JS
+const menuItemsData = <%- JSON.stringify(menuItems) %>;
+const addonsData = <%- JSON.stringify(addons || []) %>;
+</script>
 <script src="/js/pos.js"></script>

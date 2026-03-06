@@ -59,6 +59,22 @@ router.get('/', (req, res) => {
     LIMIT 10
   `).all();
 
+  // Expiry tracking data
+  const thresholdRow = db.prepare("SELECT value FROM system_settings WHERE key = 'expiry_threshold_days'").get();
+  const expiryThreshold = thresholdRow ? parseInt(thresholdRow.value) || 7 : 7;
+  const thresholdDate = new Date(Date.now() + expiryThreshold * 86400000).toISOString().split('T')[0];
+  
+  const expiringSoonCount = db.prepare(`SELECT COUNT(*) as cnt FROM inventory_batches WHERE is_disposed = 0 AND quantity > 0 AND expiration_date > ? AND expiration_date <= ?`).get(today, thresholdDate).cnt;
+  const expiredCount = db.prepare(`SELECT COUNT(*) as cnt FROM inventory_batches WHERE is_disposed = 0 AND quantity > 0 AND expiration_date <= ?`).get(today).cnt;
+  
+  const nearExpiryItems = db.prepare(`
+    SELECT b.id as batch_id, b.quantity as batch_qty, b.expiration_date, ii.name as item_name, ii.unit
+    FROM inventory_batches b
+    JOIN inventory_items ii ON b.inventory_item_id = ii.id
+    WHERE b.is_disposed = 0 AND b.quantity > 0 AND b.expiration_date <= ?
+    ORDER BY b.expiration_date ASC LIMIT 8
+  `).all(thresholdDate);
+
   res.render('dashboard', {
     title: 'Dashboard',
     todaySales,
@@ -68,7 +84,11 @@ router.get('/', (req, res) => {
     recentOrders,
     topItems,
     salesChart,
-    lowStockItems
+    lowStockItems,
+    expiringSoonCount,
+    expiredCount,
+    nearExpiryItems,
+    expiryThreshold
   });
 });
 

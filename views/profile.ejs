@@ -1,0 +1,285 @@
+<% layout('layout') -%>
+
+<style>
+.profile-card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.profile-avatar { width: 80px; height: 80px; border-radius: 50%; background: var(--primary, #4a2c2a); color: white; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 600; }
+.profile-section { margin-bottom: 1.5rem; }
+.info-label { font-size: 0.8rem; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.25rem; }
+.info-value { font-size: 1rem; font-weight: 500; }
+.password-toggle-btn { cursor: pointer; border: none; background: none; padding: 0.375rem 0.75rem; }
+.activity-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0; }
+.activity-item:last-child { border-bottom: none; }
+.activity-icon { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
+.pw-strength { height: 4px; border-radius: 2px; margin-top: 0.25rem; transition: all 0.3s; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-person-circle"></i> My Profile</h2>
+</div>
+
+<div class="row g-4">
+  <!-- Profile Info Card -->
+  <div class="col-lg-4">
+    <div class="card profile-card">
+      <div class="card-body text-center pt-4">
+        <div class="profile-avatar mx-auto mb-3">
+          <%= user.full_name.charAt(0).toUpperCase() %>
+        </div>
+        <h5 class="mb-1"><%= user.display_name || user.full_name %></h5>
+        <p class="text-muted mb-2">@<%= user.username %></p>
+        <span class="badge bg-<%= user.role === 'admin' ? 'danger' : user.role === 'inventory_clerk' ? 'info' : 'primary' %> mb-3">
+          <%= user.role === 'inventory_clerk' ? 'Inventory Clerk' : user.role.charAt(0).toUpperCase() + user.role.slice(1) %>
+        </span>
+        <hr>
+        <div class="text-start px-3">
+          <div class="profile-section">
+            <div class="info-label">Full Name</div>
+            <div class="info-value"><%= user.full_name %></div>
+          </div>
+          <div class="profile-section">
+            <div class="info-label">Username</div>
+            <div class="info-value"><%= user.username %></div>
+          </div>
+          <div class="profile-section">
+            <div class="info-label">Role</div>
+            <div class="info-value"><%= user.role === 'inventory_clerk' ? 'Inventory Clerk' : user.role.charAt(0).toUpperCase() + user.role.slice(1) %></div>
+          </div>
+          <div class="profile-section">
+            <div class="info-label">Email</div>
+            <div class="info-value"><%= user.email || 'Not set' %></div>
+          </div>
+          <div class="profile-section">
+            <div class="info-label">Contact Number</div>
+            <div class="info-value"><%= user.contact_number || 'Not set' %></div>
+          </div>
+          <div class="profile-section">
+            <div class="info-label">Account Created</div>
+            <div class="info-value"><%= user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'}) : '-' %></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-8">
+    <!-- Update Profile Card -->
+    <div class="card profile-card mb-4">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-pencil-square"></i> Update Profile</h5>
+        <p class="text-muted small">You can update your display name and contact number. Username and role cannot be changed here.</p>
+        <hr>
+        <form id="profileForm">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Display Name</label>
+              <input type="text" id="displayName" class="form-control" value="<%= user.display_name || user.full_name %>" placeholder="How you want to be called">
+              <small class="text-muted">This is shown in the sidebar and top bar</small>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Email</label>
+              <input type="email" id="email" class="form-control" value="<%= user.email || '' %>" placeholder="e.g. user@example.com">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Contact Number</label>
+              <input type="tel" id="contactNumber" class="form-control" value="<%= user.contact_number || '' %>" placeholder="e.g. 09171234567">
+            </div>
+          </div>
+          <div class="mt-3">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Save Changes</button>
+          </div>
+        </form>
+        <div id="profileMsg" class="mt-2" style="display:none;"></div>
+      </div>
+    </div>
+
+    <!-- Change Password Card -->
+    <div class="card profile-card mb-4">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-shield-lock"></i> Change Password</h5>
+        <p class="text-muted small">After changing your password, you will be logged out and need to sign in again.</p>
+        <hr>
+        <form id="passwordForm">
+          <div class="row g-3">
+            <div class="col-md-12">
+              <label class="form-label">Current Password *</label>
+              <div class="input-group">
+                <input type="password" id="currentPassword" class="form-control" required>
+                <button type="button" class="password-toggle-btn input-group-text" onclick="togglePw('currentPassword', this)">
+                  <i class="bi bi-eye-slash"></i>
+                </button>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">New Password *</label>
+              <div class="input-group">
+                <input type="password" id="newPassword" class="form-control" required oninput="checkPasswordStrength()">
+                <button type="button" class="password-toggle-btn input-group-text" onclick="togglePw('newPassword', this)">
+                  <i class="bi bi-eye-slash"></i>
+                </button>
+              </div>
+              <div id="pwStrengthBar" class="pw-strength bg-secondary" style="width:0%"></div>
+              <small id="pwStrengthText" class="text-muted">Minimum 8 characters, at least 1 number</small>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Confirm New Password *</label>
+              <div class="input-group">
+                <input type="password" id="confirmPassword" class="form-control" required oninput="checkPasswordMatch()">
+                <button type="button" class="password-toggle-btn input-group-text" onclick="togglePw('confirmPassword', this)">
+                  <i class="bi bi-eye-slash"></i>
+                </button>
+              </div>
+              <div id="pwMatchFeedback" class="small mt-1"></div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <button type="submit" class="btn btn-warning"><i class="bi bi-key"></i> Change Password</button>
+          </div>
+        </form>
+        <div id="pwMsg" class="mt-2" style="display:none;"></div>
+      </div>
+    </div>
+
+    <!-- Recent Activity Card -->
+    <div class="card profile-card">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-clock-history"></i> Recent Activity</h5>
+        <hr>
+        <div class="activity-item">
+          <div class="activity-icon bg-success bg-opacity-10 text-success"><i class="bi bi-box-arrow-in-right"></i></div>
+          <div>
+            <div class="fw-medium">Last Login</div>
+            <small class="text-muted" id="lastLoginTime"><%= user.last_login ? new Date(user.last_login).toLocaleString('en-US', {year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}) : 'No record' %></small>
+          </div>
+        </div>
+        <div class="activity-item">
+          <div class="activity-icon bg-warning bg-opacity-10 text-warning"><i class="bi bi-key"></i></div>
+          <div>
+            <div class="fw-medium">Last Password Change</div>
+            <small class="text-muted"><%= user.last_password_change ? new Date(user.last_password_change).toLocaleString('en-US', {year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}) : 'Never changed' %></small>
+          </div>
+        </div>
+        <div class="activity-item">
+          <div class="activity-icon bg-danger bg-opacity-10 text-danger"><i class="bi bi-exclamation-triangle"></i></div>
+          <div>
+            <div class="fw-medium">Last Failed Login Attempt</div>
+            <small class="text-muted"><%= user.last_failed_login ? new Date(user.last_failed_login).toLocaleString('en-US', {year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}) : 'No failed attempts' %></small>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function togglePw(inputId, btn) {
+  const input = document.getElementById(inputId);
+  const icon = btn.querySelector('i');
+  if (input.type === 'password') {
+    input.type = 'text';
+    icon.classList.replace('bi-eye-slash', 'bi-eye');
+  } else {
+    input.type = 'password';
+    icon.classList.replace('bi-eye', 'bi-eye-slash');
+  }
+}
+
+function checkPasswordStrength() {
+  const pw = document.getElementById('newPassword').value;
+  const bar = document.getElementById('pwStrengthBar');
+  const text = document.getElementById('pwStrengthText');
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (/\d/.test(pw)) score++;
+  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
+  if (/[^a-zA-Z0-9]/.test(pw)) score++;
+
+  const colors = ['bg-danger', 'bg-warning', 'bg-info', 'bg-success'];
+  const labels = ['Weak', 'Fair', 'Good', 'Strong'];
+  bar.className = 'pw-strength ' + (score > 0 ? colors[score - 1] : 'bg-secondary');
+  bar.style.width = (score * 25) + '%';
+  
+  const errors = [];
+  if (pw.length < 8) errors.push('at least 8 characters');
+  if (!/\d/.test(pw)) errors.push('at least 1 number');
+  
+  if (errors.length > 0) {
+    text.className = 'text-danger small';
+    text.textContent = 'Requires: ' + errors.join(', ');
+  } else {
+    text.className = 'text-success small';
+    text.textContent = 'Password strength: ' + labels[Math.max(0, score - 1)];
+  }
+  checkPasswordMatch();
+}
+
+function checkPasswordMatch() {
+  const pw = document.getElementById('newPassword').value;
+  const confirm = document.getElementById('confirmPassword').value;
+  const feedback = document.getElementById('pwMatchFeedback');
+  if (!confirm) { feedback.innerHTML = ''; return; }
+  if (pw === confirm) {
+    feedback.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Passwords match</span>';
+  } else {
+    feedback.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle"></i> Passwords do not match</span>';
+  }
+}
+
+function showMsg(elId, msg, type) {
+  const el = document.getElementById(elId);
+  el.style.display = 'block';
+  el.className = 'mt-2 alert alert-' + type;
+  el.innerHTML = '<i class="bi bi-' + (type === 'success' ? 'check-circle' : 'exclamation-triangle') + '"></i> ' + msg;
+  if (type === 'success') setTimeout(() => el.style.display = 'none', 5000);
+}
+
+document.getElementById('profileForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const res = await fetch('/profile/update', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      display_name: document.getElementById('displayName').value.trim(),
+      email: document.getElementById('email').value.trim(),
+      contact_number: document.getElementById('contactNumber').value.trim()
+    })
+  });
+  const data = await res.json();
+  if (data.success) {
+    showMsg('profileMsg', data.message, 'success');
+  } else {
+    showMsg('profileMsg', data.error, 'danger');
+  }
+});
+
+document.getElementById('passwordForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const newPw = document.getElementById('newPassword').value;
+  const confirmPw = document.getElementById('confirmPassword').value;
+
+  if (newPw.length < 8) { showMsg('pwMsg', 'Password must be at least 8 characters', 'danger'); return; }
+  if (!/\d/.test(newPw)) { showMsg('pwMsg', 'Password must include at least 1 number', 'danger'); return; }
+  if (newPw !== confirmPw) { showMsg('pwMsg', 'Passwords do not match', 'danger'); return; }
+
+  const res = await fetch('/profile/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      current_password: document.getElementById('currentPassword').value,
+      new_password: newPw,
+      confirm_password: confirmPw
+    })
+  });
+  const data = await res.json();
+  if (data.success) {
+    if (data.logout) {
+      // Show message then redirect to login
+      document.body.innerHTML = '<div class="d-flex align-items-center justify-content-center min-vh-100"><div class="text-center"><div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + data.message + '</div><p>Redirecting to login...</p></div></div>';
+      setTimeout(() => window.location.href = '/login', 2000);
+    } else {
+      showMsg('pwMsg', data.message, 'success');
+    }
+  } else {
+    showMsg('pwMsg', data.error, 'danger');
+  }
+});
+</script>

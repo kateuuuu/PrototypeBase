@@ -22,27 +22,34 @@
   <div class="card-body table-responsive">
     <table class="table table-hover align-middle">
       <thead>
-        <tr><th>Name</th><th>Username</th><th>Role</th><th>Contact</th><th>Shifts</th><th>Orders</th><th>Status</th><th>Actions</th></tr>
+        <tr><th>Name</th><th>Username</th><th>Email</th><th>Role</th><th>Contact</th><th>Status</th><th>Actions</th></tr>
       </thead>
       <tbody>
         <% employees.forEach(emp => { %>
         <tr>
           <td><%= emp.full_name %></td>
           <td><code><%= emp.username %></code></td>
+          <td><%= emp.email || '-' %></td>
           <td><span class="badge bg-<%= emp.role === 'admin' ? 'danger' : emp.role === 'inventory_clerk' ? 'info' : 'primary' %>"><%= emp.role.replace('_', ' ') %></span></td>
           <td><%= emp.contact_number || '-' %></td>
-          <td><%= emp.total_shifts %></td>
-          <td><%= emp.total_orders %></td>
-          <td><span class="badge bg-<%= emp.is_active ? 'success' : 'secondary' %>"><%= emp.is_active ? 'Active' : 'Inactive' %></span></td>
           <td>
-            <button class="btn btn-sm btn-outline-primary" onclick='editEmployee(<%- JSON.stringify({id:emp.id,username:emp.username,full_name:emp.full_name,role:emp.role,is_active:emp.is_active,permissions:emp.permissions,contact_number:emp.contact_number}) %>)'>
-              <i class="bi bi-pencil"></i>
-            </button>
-            <% if (emp.id !== currentUser.id) { %>
-            <button class="btn btn-sm btn-outline-danger" onclick="deleteEmployee(<%= emp.id %>, '<%= emp.full_name %>')">
-              <i class="bi bi-trash"></i>
-            </button>
-            <% } %>
+            <span class="badge bg-<%= emp.is_active ? 'success' : 'secondary' %>"><%= emp.is_active ? 'Active' : 'Inactive' %></span>
+            <% if (emp.must_change_password) { %><span class="badge bg-warning text-dark" title="Must change password on next login"><i class="bi bi-exclamation-triangle"></i> PW Reset</span><% } %>
+          </td>
+          <td>
+            <div class="btn-group btn-group-sm">
+              <button class="btn btn-outline-primary" onclick='editEmployee(<%- JSON.stringify({id:emp.id,username:emp.username,full_name:emp.full_name,role:emp.role,is_active:emp.is_active,permissions:emp.permissions,contact_number:emp.contact_number,email:emp.email,enable_2fa:emp.enable_2fa}) %>)' title="Edit">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <% if (emp.id !== currentUser.id) { %>
+              <button class="btn btn-outline-warning" onclick="resetPassword(<%= emp.id %>, '<%= emp.full_name %>')" title="Reset Password">
+                <i class="bi bi-key"></i>
+              </button>
+              <button class="btn btn-outline-danger" onclick="deleteEmployee(<%= emp.id %>, '<%= emp.full_name %>')" title="Deactivate">
+                <i class="bi bi-trash"></i>
+              </button>
+              <% } %>
+            </div>
           </td>
         </tr>
         <% }) %>
@@ -69,12 +76,16 @@
               <div id="addUsernameFeedback" class="username-feedback"></div>
             </div>
             <div class="mb-3">
+              <label class="form-label">Email</label>
+              <input type="email" id="addEmail" class="form-control" placeholder="employee@email.com">
+            </div>
+            <div class="mb-3">
               <label class="form-label">Password *</label>
               <div class="input-password-wrapper">
-                <input type="password" id="addPassword" class="form-control" required minlength="6">
+                <input type="password" id="addPassword" class="form-control" required minlength="8">
                 <i class="bi bi-eye-slash password-toggle" onclick="togglePassword('addPassword', this)"></i>
               </div>
-              <small class="text-muted">Minimum 6 characters</small>
+              <small class="text-muted">Minimum 8 characters, at least 1 number</small>
             </div>
             <div class="mb-3">
               <label class="form-label">Confirm Password *</label>
@@ -95,6 +106,9 @@
                 <option value="inventory_clerk">Inventory Clerk</option>
                 <option value="admin">Admin</option>
               </select>
+            </div>
+            <div class="alert alert-info small">
+              <i class="bi bi-info-circle"></i> New employees will be required to change their password on first login.
             </div>
           </div>
           <div class="col-md-6">
@@ -152,6 +166,10 @@
               <input type="tel" id="editContact" class="form-control" placeholder="Optional">
             </div>
             <div class="mb-3">
+              <label class="form-label">Email</label>
+              <input type="email" id="editEmail" class="form-control" placeholder="employee@email.com">
+            </div>
+            <div class="mb-3">
               <label class="form-label">Role</label>
               <select id="editRole" class="form-select" onchange="loadRoleDefaults()">
                 <option value="cashier">Cashier</option>
@@ -162,6 +180,18 @@
             <div class="form-check mb-3">
               <input type="checkbox" id="editActive" class="form-check-input" checked>
               <label class="form-check-label" for="editActive">Active</label>
+            </div>
+            <div class="form-check mb-3" id="twoFaSection" style="display:none;">
+              <input type="checkbox" id="edit2FA" class="form-check-input">
+              <label class="form-check-label" for="edit2FA">
+                <i class="bi bi-shield-lock"></i> Enable 2FA (email OTP simulation)
+              </label>
+              <small class="text-muted d-block">Demo OTP code: 123456</small>
+            </div>
+            <div class="d-grid gap-1">
+              <button class="btn btn-sm btn-outline-info" id="btnSendSetPassword" onclick="sendSetPasswordLink()">
+                <i class="bi bi-link-45deg"></i> Send set-password link (simulation)
+              </button>
             </div>
           </div>
           <div class="col-md-6">
@@ -280,6 +310,7 @@ function openAddModal() {
   document.getElementById('addPassword').value = '';
   document.getElementById('addConfirmPassword').value = '';
   document.getElementById('addContact').value = '';
+  document.getElementById('addEmail').value = '';
   document.getElementById('addRole').value = 'cashier';
   document.getElementById('addUsernameFeedback').innerHTML = '';
   document.getElementById('addPasswordMatch').innerHTML = '';
@@ -295,8 +326,12 @@ async function addEmployee() {
     alert('Passwords do not match');
     return;
   }
-  if (pass.length < 6) {
-    alert('Password must be at least 6 characters');
+  if (pass.length < 8) {
+    alert('Password must be at least 8 characters');
+    return;
+  }
+  if (!/\d/.test(pass)) {
+    alert('Password must include at least 1 number');
     return;
   }
   
@@ -306,7 +341,8 @@ async function addEmployee() {
     password: pass,
     confirm_password: confirm,
     role: document.getElementById('addRole').value,
-    contact_number: document.getElementById('addContact').value.trim() || null
+    contact_number: document.getElementById('addContact').value.trim() || null,
+    email: document.getElementById('addEmail').value.trim() || null
   };
   
   const res = await fetch('/employees', { 
@@ -332,7 +368,17 @@ function editEmployee(emp) {
   document.getElementById('editPassword').value = '';
   document.getElementById('editConfirmPassword').value = '';
   document.getElementById('editContact').value = emp.contact_number || '';
+  document.getElementById('editEmail').value = emp.email || '';
   document.getElementById('editPasswordMatch').innerHTML = '';
+  
+  // 2FA toggle - only show for admin role
+  const twoFaSection = document.getElementById('twoFaSection');
+  if (emp.role === 'admin') {
+    twoFaSection.style.display = 'block';
+    document.getElementById('edit2FA').checked = !!emp.enable_2fa;
+  } else {
+    twoFaSection.style.display = 'none';
+  }
   
   // Set permissions
   const perms = emp.permissions ? JSON.parse(emp.permissions) : DEFAULT_PERMS[emp.role] || [];
@@ -363,8 +409,12 @@ async function saveEmployee() {
     alert('Passwords do not match');
     return;
   }
-  if (pass && pass.length < 6) {
-    alert('Password must be at least 6 characters');
+  if (pass && pass.length < 8) {
+    alert('Password must be at least 8 characters');
+    return;
+  }
+  if (pass && !/\d/.test(pass)) {
+    alert('Password must include at least 1 number');
     return;
   }
   
@@ -378,7 +428,9 @@ async function saveEmployee() {
     password: pass || undefined,
     confirm_password: confirm || undefined,
     permissions: perms,
-    contact_number: document.getElementById('editContact').value.trim() || null
+    contact_number: document.getElementById('editContact').value.trim() || null,
+    email: document.getElementById('editEmail').value.trim() || null,
+    enable_2fa: document.getElementById('edit2FA').checked
   };
   
   const res = await fetch('/employees/' + document.getElementById('editId').value, { 
@@ -410,4 +462,34 @@ async function deleteEmployee(id, name) {
 document.addEventListener('DOMContentLoaded', function() {
   updateRolePreview('add');
 });
+
+// Admin reset password for employee
+async function resetPassword(id, name) {
+  if (!confirm('Reset password for "' + name + '"?\n\nThis will set a temporary password and require them to change it on next login.')) return;
+  
+  const res = await fetch('/employees/' + id + '/reset-password', { method: 'POST' });
+  const data = await res.json();
+  if (data.success) {
+    alert('Password reset successful!\n\nTemporary password: ' + data.tempPassword + '\n\n' + data.message);
+    location.reload();
+  } else {
+    alert(data.error);
+  }
+}
+
+// Send simulated set-password link
+async function sendSetPasswordLink() {
+  const id = document.getElementById('editId').value;
+  if (!id) return;
+  
+  const res = await fetch('/employees/' + id + '/send-set-password', { method: 'POST' });
+  const data = await res.json();
+  if (data.success) {
+    // Show modal with the simulated link
+    const linkUrl = window.location.origin + data.link;
+    alert(data.message + '\n\nSimulated link:\n' + linkUrl);
+  } else {
+    alert(data.error);
+  }
+}
 </script>

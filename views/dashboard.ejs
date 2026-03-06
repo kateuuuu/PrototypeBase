@@ -148,6 +148,43 @@
         <% } %>
       </div>
     </div>
+    
+    <% if (nearExpiryItems.length > 0) { %>
+    <!-- Near Expiry Items -->
+    <div class="card mt-3">
+      <div class="card-header text-warning"><i class="bi bi-calendar-x"></i> Near Expiry / Expired Batches
+        <% if (expiredCount > 0) { %><span class="badge bg-danger ms-1"><%= expiredCount %> expired</span><% } %>
+        <% if (expiringSoonCount > 0) { %><span class="badge bg-warning text-dark ms-1"><%= expiringSoonCount %> expiring</span><% } %>
+      </div>
+      <div class="card-body p-0">
+        <div class="list-group list-group-flush">
+          <% nearExpiryItems.forEach(item => { 
+            const expDate = new Date(item.expiration_date);
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const daysLeft = Math.ceil((expDate.getTime() - today.getTime()) / 86400000);
+            const isExpired = daysLeft <= 0;
+          %>
+            <div class="list-group-item">
+              <div class="d-flex justify-content-between">
+                <strong><%= item.item_name %></strong>
+                <span class="badge bg-<%= isExpired ? 'danger' : 'warning' %>">
+                  <%= isExpired ? 'EXPIRED' : daysLeft + 'd left' %>
+                </span>
+              </div>
+              <small class="text-muted">
+                Batch #<%= item.batch_id %> &middot; <%= item.batch_qty %> <%= item.unit %> &middot;
+                Exp: <%= expDate.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) %>
+              </small>
+            </div>
+          <% }) %>
+        </div>
+        <div class="p-2 text-center">
+          <a href="/inventory" class="btn btn-sm btn-outline-warning">View All in Inventory</a>
+        </div>
+      </div>
+    </div>
+    <% } %>
   </div>
 </div>
 

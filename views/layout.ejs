@@ -19,6 +19,7 @@
     </div>
     <nav class="sidebar-nav">
       <% const perms = typeof userPermissions !== 'undefined' ? userPermissions : []; %>
+      <% const badges = typeof navBadges !== 'undefined' ? navBadges : { lowStock: 0, pendingPO: 0, activeShift: false }; %>
       <% if (perms.includes('dashboard')) { %>
       <a href="/dashboard" class="nav-link <%= typeof title !== 'undefined' && title === 'Dashboard' ? 'active' : '' %>">
         <i class="bi bi-speedometer2"></i> Dashboard
@@ -26,7 +27,7 @@
       <% } %>
       <% if (perms.includes('pos')) { %>
       <a href="/pos" class="nav-link <%= typeof title !== 'undefined' && title === 'Point of Sale' ? 'active' : '' %>">
-        <i class="bi bi-cart3"></i> Point of Sale
+        <i class="bi bi-cart3"></i> POS
       </a>
       <% } %>
       <% if (perms.includes('order_history')) { %>
@@ -41,6 +42,7 @@
       <% if (perms.includes('inventory')) { %>
       <a href="/inventory" class="nav-link <%= typeof title !== 'undefined' && title === 'Inventory Management' ? 'active' : '' %>">
         <i class="bi bi-box-seam"></i> Inventory
+        <% if (badges.lowStock > 0) { %><span class="badge bg-danger ms-auto" style="font-size:0.65rem"><%= badges.lowStock %></span><% } %>
       </a>
       <% } %>
       <% if (perms.includes('inventory_valuation')) { %>
@@ -51,11 +53,12 @@
       <% if (perms.includes('purchase_orders')) { %>
       <a href="/purchase-orders" class="nav-link <%= typeof title !== 'undefined' && title === 'Purchase Orders' ? 'active' : '' %>">
         <i class="bi bi-truck"></i> Purchase Orders
+        <% if (badges.pendingPO > 0) { %><span class="badge bg-warning text-dark ms-auto" style="font-size:0.65rem"><%= badges.pendingPO %></span><% } %>
       </a>
       <% } %>
       <% if (perms.includes('audit_log')) { %>
       <a href="/audit-log" class="nav-link <%= typeof title !== 'undefined' && title === 'Inventory Audit Log' ? 'active' : '' %>">
-        <i class="bi bi-journal-text"></i> Audit Log
+        <i class="bi bi-journal-text"></i> Inventory Audit Log
       </a>
       <% } %>
 
@@ -83,25 +86,31 @@
       <% } %>
       <% if (perms.includes('employees')) { %>
       <a href="/employees" class="nav-link <%= typeof title !== 'undefined' && title === 'Employee Management' ? 'active' : '' %>">
-        <i class="bi bi-people"></i> Employees
+        <i class="bi bi-people"></i> Employee Management
       </a>
       <% } %>
 
       <% if (perms.includes('shifts')) { %>
       <a href="/shifts" class="nav-link <%= typeof title !== 'undefined' && title === 'Shift Management' ? 'active' : '' %>">
-        <i class="bi bi-alarm"></i> Shifts
+        <i class="bi bi-alarm"></i> Shift Management
+        <% if (badges.activeShift) { %><span class="badge bg-success ms-auto" style="font-size:0.6rem">Open</span><% } %>
       </a>
       <% } %>
     </nav>
     <div class="sidebar-footer">
       <div class="user-info">
         <i class="bi bi-person-circle"></i>
-        <span><%= currentUser.full_name %></span>
+        <span><%= currentUser.display_name || currentUser.full_name %></span>
         <small class="badge bg-secondary"><%= currentUser.role %></small>
       </div>
-      <a href="/logout" class="btn btn-outline-light btn-sm w-100 mt-2">
-        <i class="bi bi-box-arrow-right"></i> Logout
-      </a>
+      <div class="d-flex gap-1 mt-2">
+        <a href="/profile" class="btn btn-outline-light btn-sm flex-fill">
+          <i class="bi bi-person"></i> My Profile
+        </a>
+        <a href="/logout" class="btn btn-outline-light btn-sm flex-fill">
+          <i class="bi bi-box-arrow-right"></i> Logout
+        </a>
+      </div>
     </div>
   </div>
 

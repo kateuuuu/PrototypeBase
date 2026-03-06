@@ -1,5 +1,6 @@
 // ─── POS Module JavaScript ───
 let cart = [];
+let pendingItem = null; // For items waiting for variant/addon selection
 
 document.addEventListener('DOMContentLoaded', () => {
   // Category filtering
@@ -16,7 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.querySelectorAll('.pos-item-card').forEach(card => {
     card.addEventListener('click', () => {
-      addToCart(parseInt(card.dataset.id), card.dataset.name, parseFloat(card.dataset.price));
+      handleItemClick(card);
     });
   });
 
@@ -58,10 +59,80 @@ function filterMenuItems() {
   });
 }
 
-function addToCart(id, name, price) {
-  const existing = cart.find(item => item.menu_item_id === id);
-  if (existing) existing.quantity++;
-  else cart.push({ menu_item_id: id, name, price, quantity: 1 });
+function handleItemClick(card) {
+  const itemId = parseInt(card.dataset.id);
+  const itemName = card.dataset.name;
+  const basePrice = parseFloat(card.dataset.price);
+  const hasVariants = card.dataset.hasVariants === 'true';
+  
+  let variants = [];
+  try {
+    variants = JSON.parse(card.dataset.variants || '[]');
+  } catch(e) {
+    variants = [];
+  }
+  
+  if (hasVariants && variants.length > 0) {
+    // Show variant selection modal
+    showVariantModal(itemId, itemName, variants);
+  } else {
+    // No variants - add directly (or show add-ons if available)
+    addToCartWithOptions(itemId, itemName, basePrice, null, null);
+  }
+}
+
+function showVariantModal(itemId, itemName, variants) {
+  const modal = document.getElementById('variantModal');
+  document.getElementById('variantModalTitle').textContent = itemName;
+  
+  let html = '<div class="d-grid gap-2">';
+  variants.forEach(v => {
+    html += `<button class="btn btn-outline-primary" onclick="selectVariant(${itemId}, '${itemName.replace(/'/g, "\\'")}', ${v.id}, '${v.name.replace(/'/g, "\\'")}', ${v.price})">
+      <strong>${v.name}</strong> – ₱${v.price.toFixed(2)}
+    </button>`;
+  });
+  html += '</div>';
+  
+  document.getElementById('variantModalBody').innerHTML = html;
+  new bootstrap.Modal(modal).show();
+}
+
+function selectVariant(itemId, itemName, variantId, variantName, price) {
+  bootstrap.Modal.getInstance(document.getElementById('variantModal')).hide();
+  addToCartWithOptions(itemId, itemName, price, variantId, variantName);
+}
+
+function addToCartWithOptions(itemId, itemName, price, variantId, variantName) {
+  // Check if add-ons are available and item is a drink (has variants or in drink categories)
+  const hasAddons = typeof addonsData !== 'undefined' && addonsData.length > 0;
+  
+  // For prototype, we'll skip add-ons selection and add directly
+  // You can enable add-ons by showing the modal here
+  addToCart(itemId, itemName, price, variantId, variantName, []);
+}
+
+function addToCart(id, name, price, variantId = null, variantName = null, addons = []) {
+  const displayName = variantName ? name + ' (' + variantName + ')' : name;
+  
+  // Check if same item+variant already in cart
+  const existingIndex = cart.findIndex(item => 
+    item.menu_item_id === id && item.variant_id === variantId
+  );
+  
+  if (existingIndex >= 0) {
+    cart[existingIndex].quantity++;
+  } else {
+    cart.push({ 
+      menu_item_id: id, 
+      name: displayName,
+      baseName: name,
+      price: price, 
+      variant_id: variantId,
+      variant_name: variantName,
+      addons: addons,
+      quantity: 1 
+    });
+  }
   renderCart();
 }
 
@@ -149,7 +220,12 @@ async function processOrder() {
   const notes = document.getElementById('orderNotes')?.value || '';
 
   const orderData = {
-    items: cart.map(item => ({ menu_item_id: item.menu_item_id, quantity: item.quantity })),
+    items: cart.map(item => ({ 
+      menu_item_id: item.menu_item_id, 
+      quantity: item.quantity,
+      variant_id: item.variant_id || null,
+      addons: item.addons?.map(a => a.id) || []
+    })),
     payment_method: paymentMethod,
     amount_paid: amountPaid,
     discount: discountAmt,
@@ -171,7 +247,6 @@ async function processOrder() {
     } else {
       const err = await res.json();
       if (err.requireShift) {
-        // Show shift requirement modal or redirect
         if (confirm('No open shift. You must start a shift before processing orders.\n\nGo to Shift Management now?')) {
           window.location.href = '/shifts';
         }

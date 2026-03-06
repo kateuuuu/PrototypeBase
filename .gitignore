@@ -4,10 +4,7 @@ node_modules/
 *.db
 *.sqlite
 *.sqlite3
-
-# ignore sqlite runtime files
 *.db-wal
 *.db-shm
 
-# allow shared demo DB snapshot
 !database/senorito.db

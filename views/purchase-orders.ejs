@@ -208,54 +208,58 @@
 
 <!-- Receive PO Modal -->
 <div class="modal fade" id="receivePOModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header bg-success text-white">
-        <h5><i class="bi bi-check2-circle"></i> Receive Purchase Order</h5>
+        <h5><i class="bi bi-check2-circle"></i> Receive Purchase Order — <span id="receivePONumber"></span></h5>
         <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div class="alert alert-info py-2">
-          <i class="bi bi-info-circle"></i> Receiving this PO will:
-          <ul class="mb-0 mt-1">
-            <li>Add items to inventory stock</li>
-            <li>Update unit costs based on selected method</li>
-            <li>Record audit log entries with PO reference</li>
-          </ul>
+        <div class="alert alert-info py-2 small">
+          <i class="bi bi-info-circle"></i> Receiving this PO will add items to inventory, update costs, and create audit entries.
+          <br><strong>Expiration dates are required for perishable items and will be stored as inventory batches.</strong>
         </div>
         
-        <!-- PO Summary -->
-        <div class="row mb-3">
-          <div class="col-6">
-            <strong>PO:</strong> <span id="receivePONumber" class="text-primary"></span>
+        <!-- Line Items Table -->
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" id="receiveItemsTable">
+            <thead class="table-light">
+              <tr>
+                <th>Item</th>
+                <th class="text-center" style="width:90px">Ordered</th>
+                <th class="text-center" style="width:100px">Received Qty</th>
+                <th style="width:70px">Unit</th>
+                <th class="text-end" style="width:100px">Cost/Unit</th>
+                <th style="width:180px">Expiration Date</th>
+                <th style="width:80px"></th>
+              </tr>
+            </thead>
+            <tbody id="receiveItemsBody">
+              <tr><td colspan="7" class="text-center text-muted py-3"><div class="spinner-border spinner-border-sm"></div> Loading items...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        
+        <hr class="my-3">
+        
+        <!-- Summary Row -->
+        <div class="row align-items-center">
+          <div class="col-md-6">
+            <div class="d-flex justify-content-between align-items-center bg-light p-2 rounded">
+              <span><strong>Total Value:</strong></span>
+              <span class="fs-5 text-success fw-bold">&#8369;<span id="receivePOTotal"></span></span>
+            </div>
           </div>
-          <div class="col-6 text-end">
-            <strong>Lines:</strong> <span id="receivePOLines" class="badge bg-secondary"></span>
-          </div>
-        </div>
-        
-        <!-- Items Preview -->
-        <div class="card bg-light mb-3">
-          <div class="card-header py-2"><small class="fw-bold"><i class="bi bi-box-seam"></i> Items to Receive</small></div>
-          <div class="card-body py-2" id="receivePOItems">
-            <div class="text-center text-muted"><small>Loading items...</small></div>
-          </div>
-        </div>
-        
-        <div class="d-flex justify-content-between align-items-center mb-3 bg-light p-2 rounded">
-          <span><strong>Total Value:</strong></span>
-          <span class="fs-5 text-success fw-bold">&#8369;<span id="receivePOTotal"></span></span>
-        </div>
-        
-        <!-- Cost Method Selection -->
-        <div class="mb-3">
-          <label class="form-label fw-bold">Cost Update Method</label>
-          <select class="form-select" id="receiveCostMethod" onchange="updateCostMethodHelp()">
-            <option value="latest" selected>Latest Cost (overwrite existing)</option>
-            <option value="weighted">Weighted Average</option>
-          </select>
-          <div id="costMethodHelp" class="form-text mt-2">
-            <i class="bi bi-lightbulb text-warning"></i> <strong>Latest Cost:</strong> Replaces the current unit cost with this PO's cost. Best when prices change frequently.
+          <div class="col-md-6">
+            <!-- Cost Method Selection -->
+            <label class="form-label fw-bold mb-1 small">Cost Update Method</label>
+            <select class="form-select form-select-sm" id="receiveCostMethod" onchange="updateCostMethodHelp()">
+              <option value="latest" selected>Latest Cost (overwrite existing)</option>
+              <option value="weighted">Weighted Average</option>
+            </select>
+            <div id="costMethodHelp" class="form-text small mt-1">
+              <i class="bi bi-lightbulb text-warning"></i> <strong>Latest Cost:</strong> Replaces current unit cost with this PO's cost.
+            </div>
           </div>
         </div>
         
@@ -263,7 +267,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-success" onclick="confirmReceive()"><i class="bi bi-check"></i> Confirm Receive</button>
+        <button class="btn btn-success" onclick="confirmReceive()" id="confirmReceiveBtn"><i class="bi bi-check"></i> Confirm Receive</button>
       </div>
     </div>
   </div>
@@ -421,36 +425,106 @@ async function showReceiveModal(id, poNumber, total) {
   document.getElementById('receivePOId').value = id;
   document.getElementById('receivePONumber').textContent = poNumber;
   document.getElementById('receivePOTotal').textContent = total.toLocaleString('en-PH', {minimumFractionDigits:2});
-  document.getElementById('receivePOItems').innerHTML = '<div class="text-center text-muted"><small>Loading items...</small></div>';
-  document.getElementById('receivePOLines').textContent = '...';
+  document.getElementById('receiveItemsBody').innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3"><div class="spinner-border spinner-border-sm"></div> Loading items...</td></tr>';
   updateCostMethodHelp();
   
   new bootstrap.Modal(document.getElementById('receivePOModal')).show();
   
-  // Fetch PO items for preview
   try {
     const res = await fetch('/purchase-orders/' + id);
     const data = await res.json();
     const items = data.items;
     
-    document.getElementById('receivePOLines').textContent = items.length;
-    
     if (items.length === 0) {
-      document.getElementById('receivePOItems').innerHTML = '<small class="text-muted">No items in this PO</small>';
-    } else {
-      let html = '<div class="small">';
-      items.forEach((item, idx) => {
-        const sign = '<span class="text-success">+' + item.quantity + '</span>';
-        html += '<div class="d-flex justify-content-between align-items-center' + (idx < items.length - 1 ? ' border-bottom pb-1 mb-1' : '') + '">';
-        html += '<span>' + item.item_name + '</span>';
-        html += '<span>' + sign + ' ' + item.unit + ' <small class="text-muted">(₱' + item.unit_cost.toFixed(2) + '/unit)</small></span>';
-        html += '</div>';
-      });
-      html += '</div>';
-      document.getElementById('receivePOItems').innerHTML = html;
+      document.getElementById('receiveItemsBody').innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No items in this PO</td></tr>';
+      return;
     }
+    
+    let html = '';
+    items.forEach((item, idx) => {
+      const isPerishable = item.track_expiry ? true : false;
+      html += `<tr class="receive-line" data-poi-id="${item.id}" data-track-expiry="${isPerishable ? '1' : '0'}" data-item-name="${item.item_name}">
+        <td>
+          <strong>${item.item_name}</strong>
+          ${isPerishable ? '<br><span class="badge bg-info text-white" style="font-size:0.65rem"><i class="bi bi-calendar-check"></i> Perishable</span>' : ''}
+        </td>
+        <td class="text-center">${item.quantity}</td>
+        <td class="text-center">
+          <input type="number" class="form-control form-control-sm text-center receive-qty" value="${item.quantity}" min="0.01" step="0.01" data-ordered="${item.quantity}">
+        </td>
+        <td><small>${item.unit}</small></td>
+        <td class="text-end"><small>₱${(item.unit_cost||0).toFixed(2)}</small></td>
+        <td>
+          ${isPerishable ? `<input type="date" class="form-control form-control-sm receive-expiry" required>` : '<span class="text-muted small">N/A</span>'}
+        </td>
+        <td>
+          ${isPerishable ? `<button class="btn btn-sm btn-outline-secondary" onclick="toggleSplitBatches(this, ${idx})" title="Split into multiple batches"><i class="bi bi-diagram-3"></i></button>` : ''}
+        </td>
+      </tr>`;
+      // Split batch sub-rows container (hidden by default)
+      if (isPerishable) {
+        html += `<tr class="split-batches-row d-none" data-parent-idx="${idx}">
+          <td colspan="7" class="bg-light ps-4">
+            <div class="split-container">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <small class="fw-bold text-muted"><i class="bi bi-diagram-3"></i> Split Batches for ${item.item_name}</small>
+                <button class="btn btn-sm btn-outline-primary" onclick="addSplitRow(this, ${idx})"><i class="bi bi-plus"></i> Add Batch</button>
+              </div>
+              <div class="split-rows" data-parent-idx="${idx}">
+                <div class="row g-2 mb-2 split-row">
+                  <div class="col-4"><input type="number" class="form-control form-control-sm split-qty" placeholder="Qty" min="0.01" step="0.01"></div>
+                  <div class="col-5"><input type="date" class="form-control form-control-sm split-expiry"></div>
+                  <div class="col-3 text-end"><button class="btn btn-sm btn-outline-danger" onclick="removeSplitRow(this)"><i class="bi bi-trash"></i></button></div>
+                </div>
+              </div>
+              <div class="split-validation text-danger small mt-1" data-parent-idx="${idx}"></div>
+            </div>
+          </td>
+        </tr>`;
+      }
+    });
+    
+    document.getElementById('receiveItemsBody').innerHTML = html;
   } catch (err) {
-    document.getElementById('receivePOItems').innerHTML = '<small class="text-danger">Error loading items</small>';
+    document.getElementById('receiveItemsBody').innerHTML = '<tr><td colspan="7" class="text-center text-danger py-3">Error loading items</td></tr>';
+  }
+}
+
+// Toggle split batch mode for a line item
+function toggleSplitBatches(btn, idx) {
+  const splitRow = document.querySelector(`.split-batches-row[data-parent-idx="${idx}"]`);
+  const parentRow = splitRow.previousElementSibling;
+  const expiryInput = parentRow.querySelector('.receive-expiry');
+  
+  if (splitRow.classList.contains('d-none')) {
+    splitRow.classList.remove('d-none');
+    btn.classList.add('btn-primary');
+    btn.classList.remove('btn-outline-secondary');
+    if (expiryInput) { expiryInput.disabled = true; expiryInput.value = ''; }
+    parentRow.dataset.splitMode = '1';
+  } else {
+    splitRow.classList.add('d-none');
+    btn.classList.remove('btn-primary');
+    btn.classList.add('btn-outline-secondary');
+    if (expiryInput) { expiryInput.disabled = false; }
+    parentRow.dataset.splitMode = '0';
+  }
+}
+
+function addSplitRow(btn, parentIdx) {
+  const container = btn.closest('.split-container').querySelector('.split-rows');
+  const row = document.createElement('div');
+  row.className = 'row g-2 mb-2 split-row';
+  row.innerHTML = `<div class="col-4"><input type="number" class="form-control form-control-sm split-qty" placeholder="Qty" min="0.01" step="0.01"></div>
+    <div class="col-5"><input type="date" class="form-control form-control-sm split-expiry"></div>
+    <div class="col-3 text-end"><button class="btn btn-sm btn-outline-danger" onclick="removeSplitRow(this)"><i class="bi bi-trash"></i></button></div>`;
+  container.appendChild(row);
+}
+
+function removeSplitRow(btn) {
+  const container = btn.closest('.split-rows');
+  if (container.querySelectorAll('.split-row').length > 1) {
+    btn.closest('.split-row').remove();
   }
 }
 
@@ -468,12 +542,94 @@ function updateCostMethodHelp() {
 async function confirmReceive() {
   const id = document.getElementById('receivePOId').value;
   const costMethod = document.getElementById('receiveCostMethod').value;
+  const rows = document.querySelectorAll('.receive-line');
+  const lineItems = [];
+  let valid = true;
+  let errMsg = '';
+  
+  rows.forEach(row => {
+    const poiId = row.dataset.poiId;
+    const trackExpiry = row.dataset.trackExpiry === '1';
+    const qtyInput = row.querySelector('.receive-qty');
+    const receivedQty = parseFloat(qtyInput.value);
+    const expiryInput = row.querySelector('.receive-expiry');
+    const splitMode = row.dataset.splitMode === '1';
+    
+    // Validate qty
+    if (isNaN(receivedQty) || receivedQty <= 0) {
+      valid = false;
+      errMsg = 'Received quantity must be greater than 0 for ' + row.dataset.itemName;
+      qtyInput.classList.add('is-invalid');
+      return;
+    }
+    qtyInput.classList.remove('is-invalid');
+    
+    if (trackExpiry && splitMode) {
+      // Collect split batches
+      const parentIdx = row.nextElementSibling?.dataset.parentIdx;
+      const splitContainer = row.nextElementSibling?.querySelector('.split-rows');
+      if (!splitContainer) return;
+      
+      const batches = [];
+      let totalSplitQty = 0;
+      splitContainer.querySelectorAll('.split-row').forEach(sr => {
+        const sq = parseFloat(sr.querySelector('.split-qty')?.value);
+        const se = sr.querySelector('.split-expiry')?.value;
+        if (isNaN(sq) || sq <= 0) {
+          valid = false;
+          errMsg = 'All split batch quantities must be > 0 for ' + row.dataset.itemName;
+          return;
+        }
+        if (!se) {
+          valid = false;
+          errMsg = 'Expiration date is required for all split batches of ' + row.dataset.itemName;
+          return;
+        }
+        batches.push({ qty: sq, expiration_date: se });
+        totalSplitQty += sq;
+      });
+      
+      // Validate split total matches received qty
+      if (valid && Math.abs(totalSplitQty - receivedQty) > 0.01) {
+        valid = false;
+        errMsg = `Split batch quantities (${totalSplitQty}) must equal received quantity (${receivedQty}) for ${row.dataset.itemName}`;
+        const valDiv = document.querySelector(`.split-validation[data-parent-idx="${parentIdx}"]`);
+        if (valDiv) valDiv.textContent = errMsg;
+      }
+      
+      lineItems.push({ poi_id: parseInt(poiId), received_qty: receivedQty, batches });
+      
+    } else if (trackExpiry) {
+      // Single batch with required expiry
+      const expDate = expiryInput?.value;
+      if (!expDate) {
+        valid = false;
+        errMsg = 'Expiration date is required for perishable item: ' + row.dataset.itemName;
+        if (expiryInput) expiryInput.classList.add('is-invalid');
+        return;
+      }
+      if (expiryInput) expiryInput.classList.remove('is-invalid');
+      lineItems.push({ poi_id: parseInt(poiId), received_qty: receivedQty, expiration_date: expDate });
+      
+    } else {
+      // Non-perishable
+      lineItems.push({ poi_id: parseInt(poiId), received_qty: receivedQty });
+    }
+  });
+  
+  if (!valid) { alert(errMsg); return; }
+  if (lineItems.length === 0) { alert('No items to receive'); return; }
+  
+  // Disable button while submitting
+  const btn = document.getElementById('confirmReceiveBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
   
   try {
     const res = await fetch('/purchase-orders/' + id + '/receive', { 
       method:'PUT', 
       headers:{'Content-Type':'application/json'}, 
-      body: JSON.stringify({ costMethod }) 
+      body: JSON.stringify({ costMethod, lineItems }) 
     });
     const data = await res.json();
     if (data.success) {
@@ -485,9 +641,13 @@ async function confirmReceive() {
       document.getElementById('expenseRef').textContent = data.po_number;
       new bootstrap.Modal(document.getElementById('expenseModal')).show();
     } else {
-      alert(data.error);
+      alert(data.error || 'Failed to receive PO');
     }
   } catch (err) { alert('Error: ' + err.message); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check-circle"></i> Confirm Receive';
+  }
 }
 
 async function createExpense() {
@@ -534,6 +694,7 @@ async function viewPO(id) {
     const data = await res.json();
     const po = data.po;
     const items = data.items;
+    const batchesByItem = data.batchesByItem || {};
     
     const statusClass = po.status === 'draft' ? 'secondary' : po.status === 'ordered' ? 'primary' : po.status === 'received' ? 'success' : 'danger';
     const statusLabel = po.status.charAt(0).toUpperCase() + po.status.slice(1);
@@ -578,6 +739,43 @@ async function viewPO(id) {
         </tfoot>
       </table>
     `;
+    
+    // Show batches section for received POs
+    if (po.status === 'received' && Object.keys(batchesByItem).length > 0) {
+      html += `<div class="mt-3"><h6><i class="bi bi-boxes"></i> Batches Created</h6>`;
+      
+      items.forEach(i => {
+        const batches = batchesByItem[i.inventory_item_id];
+        if (!batches || batches.length === 0) return;
+        
+        html += `<div class="mb-2"><small class="fw-bold text-muted">${i.item_name}</small>
+          <table class="table table-sm table-bordered mb-0 mt-1">
+            <thead><tr class="table-light">
+              <th style="font-size:0.75rem">Batch ID</th>
+              <th style="font-size:0.75rem" class="text-end">Qty</th>
+              <th style="font-size:0.75rem">Expiration</th>
+              <th style="font-size:0.75rem">Status</th>
+            </tr></thead><tbody>`;
+        
+        batches.forEach(b => {
+          const statusBadge = b.status === 'OK' ? 'bg-success' : 
+                              b.status === 'Expiring Soon' ? 'bg-warning text-dark' : 
+                              b.status === 'Expired' ? 'bg-danger' : 'bg-secondary';
+          const expiryDisplay = b.expiration_date ? new Date(b.expiration_date).toLocaleDateString('en-PH', {month:'short', day:'numeric', year:'numeric'}) : 'N/A';
+          
+          html += `<tr>
+            <td><a href="/inventory?highlight=${i.inventory_item_id}" class="text-decoration-none fw-bold" style="font-size:0.8rem">#${b.id}</a></td>
+            <td class="text-end" style="font-size:0.8rem">${b.quantity} ${b.unit || ''}</td>
+            <td style="font-size:0.8rem">${expiryDisplay}</td>
+            <td><span class="badge ${statusBadge}" style="font-size:0.65rem">${b.status}</span></td>
+          </tr>`;
+        });
+        
+        html += `</tbody></table></div>`;
+      });
+      
+      html += `</div>`;
+    }
     
     if (po.notes) html += `<div class="alert alert-secondary py-2"><small><strong>Notes:</strong> ${po.notes}</small></div>`;
     if (po.cancelled_date) html += `<div class="alert alert-danger py-2"><small><strong>Cancelled:</strong> ${new Date(po.cancelled_date).toLocaleDateString('en-PH')}${po.cancelled_by_name ? ' by ' + po.cancelled_by_name : ''}</small></div>`;

@@ -53,12 +53,35 @@ router.get('/:id', (req, res) => {
   `).get(req.params.id);
   if (!po) return res.status(404).json({ error: 'Not found' });
   const items = db.prepare(`
-    SELECT poi.*, ii.name as item_name, ii.unit 
+    SELECT poi.*, ii.name as item_name, ii.unit, ii.track_expiry
     FROM purchase_order_items poi 
     JOIN inventory_items ii ON poi.inventory_item_id = ii.id 
     WHERE poi.purchase_order_id = ?
   `).all(req.params.id);
-  res.json({ po, items });
+
+  // If PO is received, attach batch info per line item
+  let batchesByItem = {};
+  if (po.status === 'received') {
+    const batches = db.prepare(`
+      SELECT b.*, ii.name as item_name
+      FROM inventory_batches b
+      JOIN inventory_items ii ON b.inventory_item_id = ii.id
+      WHERE b.reference_id = ? AND b.source = 'PO Received'
+      ORDER BY b.expiration_date ASC
+    `).all(po.po_number);
+    const today = new Date().toISOString().split('T')[0];
+    const thresholdRow = db.prepare("SELECT value FROM system_settings WHERE key = 'expiry_threshold_days'").get();
+    const threshold = thresholdRow ? parseInt(thresholdRow.value) || 7 : 7;
+    const thresholdDate = new Date(Date.now() + threshold * 86400000).toISOString().split('T')[0];
+    batches.forEach(b => {
+      b.days_left = Math.ceil((new Date(b.expiration_date).getTime() - new Date(today).getTime()) / 86400000);
+      b.status = b.is_disposed ? 'Disposed' : b.days_left <= 0 ? 'Expired' : b.expiration_date <= thresholdDate ? 'Expiring Soon' : 'OK';
+      if (!batchesByItem[b.inventory_item_id]) batchesByItem[b.inventory_item_id] = [];
+      batchesByItem[b.inventory_item_id].push(b);
+    });
+  }
+
+  res.json({ po, items, batchesByItem });
 });
 
 // CREATE new PO
@@ -130,16 +153,61 @@ router.put('/:id/order', roleCheck('admin', 'inventory_clerk'), (req, res) => {
   res.json({ success: true });
 });
 
-// RECEIVE PO - Updates inventory and audit log
+// RECEIVE PO - Updates inventory and audit log (supports per-line-item qty, expiry dates, split batches)
 router.put('/:id/receive', roleCheck('admin', 'inventory_clerk'), (req, res) => {
   const db = req.app.locals.db;
-  const { costMethod } = req.body; // 'latest' or 'weighted'
+  const { costMethod, lineItems } = req.body;
+  // lineItems: [{ poi_id, received_qty, expiration_date?, batches?: [{ qty, expiration_date }] }]
   const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(req.params.id);
   
   if (!po) return res.status(404).json({ error: 'PO not found' });
   if (po.status === 'received') return res.status(400).json({ error: 'PO already received' });
   if (po.status === 'cancelled') return res.status(400).json({ error: 'Cannot receive a cancelled PO' });
-  
+
+  // Fetch PO items with inventory info
+  const poItems = db.prepare(`
+    SELECT poi.*, ii.quantity as current_stock, ii.name as item_name, ii.cost_per_unit as current_cost, ii.track_expiry, ii.unit as inv_unit
+    FROM purchase_order_items poi 
+    JOIN inventory_items ii ON poi.inventory_item_id = ii.id 
+    WHERE poi.purchase_order_id = ?
+  `).all(req.params.id);
+
+  // Build a lookup of submitted line data keyed by poi.id
+  const lineMap = {};
+  if (lineItems && Array.isArray(lineItems)) {
+    for (const li of lineItems) { lineMap[li.poi_id] = li; }
+  }
+
+  // --- Validation ---
+  for (const item of poItems) {
+    const li = lineMap[item.id];
+    const receivedQty = li ? parseFloat(li.received_qty) : item.quantity;
+    if (!receivedQty || receivedQty <= 0) {
+      return res.status(400).json({ error: `${item.item_name}: Received quantity must be > 0` });
+    }
+    if (item.track_expiry) {
+      if (li && li.batches && Array.isArray(li.batches) && li.batches.length > 0) {
+        // Split batch mode — validate each sub-row
+        let batchSum = 0;
+        for (let bi = 0; bi < li.batches.length; bi++) {
+          const b = li.batches[bi];
+          const bQty = parseFloat(b.qty) || 0;
+          if (bQty <= 0) return res.status(400).json({ error: `${item.item_name} Batch ${bi + 1}: Quantity must be > 0` });
+          if (!b.expiration_date) return res.status(400).json({ error: `${item.item_name} Batch ${bi + 1}: Expiration date is required` });
+          batchSum += bQty;
+        }
+        const diff = Math.abs(batchSum - receivedQty);
+        if (diff > 0.01) {
+          return res.status(400).json({ error: `${item.item_name}: Sum of batch quantities (${batchSum}) must equal received quantity (${receivedQty})` });
+        }
+      } else {
+        // Single batch mode — expiration date required
+        const expDate = li ? li.expiration_date : null;
+        if (!expDate) return res.status(400).json({ error: `${item.item_name}: Expiration date is required for perishable items` });
+      }
+    }
+  }
+
   const tx = db.transaction(() => {
     // Update PO status
     db.prepare(`
@@ -147,24 +215,19 @@ router.put('/:id/receive', roleCheck('admin', 'inventory_clerk'), (req, res) => 
       SET status = 'received', received_date = datetime('now','localtime'), received_by = ? 
       WHERE id = ?
     `).run(req.session.user.id, req.params.id);
-    
-    // Process each line item
-    const poItems = db.prepare(`
-      SELECT poi.*, ii.quantity as current_stock, ii.name as item_name, ii.cost_per_unit as current_cost
-      FROM purchase_order_items poi 
-      JOIN inventory_items ii ON poi.inventory_item_id = ii.id 
-      WHERE poi.purchase_order_id = ?
-    `).all(req.params.id);
+
+    let totalBatchesCreated = 0;
     
     for (const item of poItems) {
-      const newQty = item.current_stock + item.quantity;
+      const li = lineMap[item.id];
+      const receivedQty = li ? parseFloat(li.received_qty) || item.quantity : item.quantity;
+      const newQty = item.current_stock + receivedQty;
       
-      // Calculate new cost based on method
+      // Calculate new cost
       let newCost = item.unit_cost;
       if (costMethod === 'weighted' && item.current_stock > 0) {
-        // Weighted average: (old_qty * old_cost + new_qty * new_cost) / (old_qty + new_qty)
         const totalOldValue = item.current_stock * item.current_cost;
-        const totalNewValue = item.quantity * item.unit_cost;
+        const totalNewValue = receivedQty * item.unit_cost;
         newCost = (totalOldValue + totalNewValue) / newQty;
       }
       
@@ -175,31 +238,58 @@ router.put('/:id/receive', roleCheck('admin', 'inventory_clerk'), (req, res) => 
         WHERE id = ?
       `).run(newQty, newCost, item.inventory_item_id);
       
-      // Create audit log entry with cost tracking
+      // Create batches for expiry-tracked items
+      let firstBatchId = null;
+      if (item.track_expiry) {
+        if (li && li.batches && Array.isArray(li.batches) && li.batches.length > 0) {
+          // Split batches
+          for (const b of li.batches) {
+            const bResult = db.prepare('INSERT INTO inventory_batches (inventory_item_id, quantity, unit, expiration_date, received_by, source, reference_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+              item.inventory_item_id, parseFloat(b.qty), item.inv_unit || 'pcs', b.expiration_date, req.session.user.id, 'PO Received', po.po_number
+            );
+            if (!firstBatchId) firstBatchId = bResult.lastInsertRowid;
+            totalBatchesCreated++;
+          }
+        } else {
+          // Single batch
+          const expDate = li ? li.expiration_date : null;
+          if (expDate) {
+            const bResult = db.prepare('INSERT INTO inventory_batches (inventory_item_id, quantity, unit, expiration_date, received_by, source, reference_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+              item.inventory_item_id, receivedQty, item.inv_unit || 'pcs', expDate, req.session.user.id, 'PO Received', po.po_number
+            );
+            firstBatchId = bResult.lastInsertRowid;
+            totalBatchesCreated++;
+          }
+        }
+      }
+      
+      // Audit log
       db.prepare(`
         INSERT INTO inventory_audit_log 
-        (inventory_item_id, action, quantity_change, quantity_before, quantity_after, reason, reference_id, user_id, source, cost_before, cost_after, cost_method) 
-        VALUES (?, 'po_received', ?, ?, ?, ?, ?, ?, 'Purchase Orders', ?, ?, ?)
+        (inventory_item_id, action, quantity_change, quantity_before, quantity_after, reason, reference_id, user_id, source, cost_before, cost_after, cost_method, batch_id) 
+        VALUES (?, 'po_received', ?, ?, ?, ?, ?, ?, 'Purchase Orders', ?, ?, ?, ?)
       `).run(
-        item.inventory_item_id, 
-        item.quantity, 
-        item.current_stock, 
-        newQty, 
-        'Received from ' + po.po_number, 
-        po.po_number, 
-        req.session.user.id,
-        item.current_cost,
-        newCost,
-        costMethod === 'weighted' ? 'Weighted Average' : 'Latest Cost'
+        item.inventory_item_id, receivedQty, item.current_stock, newQty,
+        'Received from ' + po.po_number,
+        po.po_number, req.session.user.id,
+        item.current_cost, newCost,
+        costMethod === 'weighted' ? 'Weighted Average' : 'Latest Cost',
+        firstBatchId
       );
     }
     
-    return { itemsReceived: poItems.length };
+    return { itemsReceived: poItems.length, batchesCreated: totalBatchesCreated };
   });
   
   try { 
     const result = tx(); 
-    res.json({ success: true, message: `PO marked as received. ${result.itemsReceived} items added to inventory.`, po_number: po.po_number, total: po.total_cost }); 
+    res.json({ 
+      success: true, 
+      message: `PO received. ${result.itemsReceived} items added to inventory.${result.batchesCreated ? ' ' + result.batchesCreated + ' batch(es) created.' : ''}`,
+      po_number: po.po_number, 
+      total: po.total_cost,
+      batchesCreated: result.batchesCreated
+    }); 
   } catch (err) { 
     res.status(500).json({ error: err.message }); 
   }

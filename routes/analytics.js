@@ -61,19 +61,54 @@ router.get('/', (req, res) => {
   }
 
   // Calculate recipe costs with missing cost tracking
+  // Include both base recipes and variant recipes
   const recipeCosts = {};
+  const variantCosts = {};
   const itemsWithRecipe = new Set();
+  const itemsWithVariants = new Set();
+  
+  const { convertUnit } = require('./unitConvert');
+  
+  // Base recipes (for items without variants)
   const recipes = db.prepare(`
     SELECT r.menu_item_id, r.quantity_needed, r.recipe_unit, ii.cost_per_unit, ii.unit as inventory_unit
     FROM recipes r JOIN inventory_items ii ON r.inventory_item_id = ii.id
   `).all();
   
-  const { convertUnit } = require('./unitConvert');
   for (const r of recipes) {
     itemsWithRecipe.add(r.menu_item_id);
     if (!recipeCosts[r.menu_item_id]) recipeCosts[r.menu_item_id] = 0;
     const qtyInInvUnit = convertUnit(r.quantity_needed, r.recipe_unit || r.inventory_unit, r.inventory_unit);
     recipeCosts[r.menu_item_id] += qtyInInvUnit * r.cost_per_unit;
+  }
+  
+  // Variant recipes
+  const variantRecipes = db.prepare(`
+    SELECT v.id as variant_id, v.menu_item_id, v.name as variant_name, v.price,
+           vr.quantity_needed, vr.recipe_unit, ii.cost_per_unit, ii.unit as inventory_unit
+    FROM menu_item_variants v
+    LEFT JOIN variant_recipes vr ON vr.variant_id = v.id
+    LEFT JOIN inventory_items ii ON vr.inventory_item_id = ii.id
+    ORDER BY v.menu_item_id, v.id
+  `).all();
+  
+  for (const r of variantRecipes) {
+    itemsWithVariants.add(r.menu_item_id);
+    if (!variantCosts[r.variant_id]) variantCosts[r.variant_id] = { cost: 0, menu_item_id: r.menu_item_id, name: r.variant_name, price: r.price };
+    if (r.quantity_needed && r.cost_per_unit) {
+      const qtyInInvUnit = convertUnit(r.quantity_needed, r.recipe_unit || r.inventory_unit, r.inventory_unit);
+      variantCosts[r.variant_id].cost += qtyInInvUnit * r.cost_per_unit;
+      itemsWithRecipe.add(r.menu_item_id); // Mark item as having recipe through variant
+    }
+  }
+  
+  // For items with variants, compute average cost across variants
+  for (const menuItemId of itemsWithVariants) {
+    const variantIds = Object.keys(variantCosts).filter(vid => variantCosts[vid].menu_item_id === menuItemId);
+    if (variantIds.length > 0) {
+      const avgCost = variantIds.reduce((sum, vid) => sum + variantCosts[vid].cost, 0) / variantIds.length;
+      recipeCosts[menuItemId] = avgCost;
+    }
   }
 
   // Heatmap data with all filters

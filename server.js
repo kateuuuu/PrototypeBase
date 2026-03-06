@@ -34,10 +34,38 @@ app.use((req, res, next) => {
   } else {
     res.locals.userPermissions = [];
   }
+  // Provide nav badge data
+  res.locals.navBadges = { lowStock: 0, pendingPO: 0, activeShift: false };
+  if (req.session.user) {
+    try {
+      const db = req.app.locals.db;
+      res.locals.navBadges.lowStock = db.prepare("SELECT COUNT(*) as cnt FROM inventory_items WHERE is_active = 1 AND quantity <= reorder_level").get().cnt;
+      res.locals.navBadges.pendingPO = db.prepare("SELECT COUNT(*) as cnt FROM purchase_orders WHERE status IN ('draft','ordered')").get().cnt;
+      res.locals.navBadges.activeShift = !!db.prepare("SELECT id FROM shifts WHERE user_id = ? AND status = 'open'").get(req.session.user.id);
+    } catch(e) {}
+  }
+  next();
+});
+
+// Force password change middleware - intercept ALL routes except auth-related
+app.use((req, res, next) => {
+  if (!req.session.user) return next();
+  const openPaths = ['/login', '/logout', '/force-password-change', '/forgot-password'];
+  if (openPaths.some(p => req.path.startsWith(p))) return next();
+  // Check if user must change password
+  const db = req.app.locals.db;
+  const user = db.prepare('SELECT must_change_password FROM users WHERE id = ?').get(req.session.user.id);
+  if (user && user.must_change_password) {
+    if (req.xhr || req.headers.accept?.includes('application/json')) {
+      return res.status(403).json({ error: 'Password change required', redirect: '/force-password-change' });
+    }
+    return res.redirect('/force-password-change');
+  }
   next();
 });
 
 app.use('/', require('./routes/auth'));
+app.use('/profile', authMiddleware, require('./routes/profile'));
 app.use('/dashboard', authMiddleware, permissionCheck('dashboard'), require('./routes/dashboard'));
 app.use('/pos', authMiddleware, permissionCheck('pos'), require('./routes/pos'));
 app.use('/menu', authMiddleware, permissionCheck('menu'), require('./routes/menu'));

@@ -39,10 +39,12 @@
 
 <!-- Summary Cards -->
 <div class="row g-3 mb-4">
-  <div class="col-md-3"><div class="card text-center"><div class="card-body"><h4><%= summary.total %></h4><small>Total Items</small></div></div></div>
-  <div class="col-md-3"><div class="card text-center border-success"><div class="card-body text-success"><h4><%= summary.in_stock %></h4><small>In-Stock</small></div></div></div>
-  <div class="col-md-3"><div class="card text-center border-warning"><div class="card-body text-warning"><h4><%= summary.low_stock %></h4><small>Low Stock</small></div></div></div>
-  <div class="col-md-3"><div class="card text-center border-danger"><div class="card-body text-danger"><h4><%= summary.out_of_stock %></h4><small>Out of Stock</small></div></div></div>
+  <div class="col"><div class="card text-center"><div class="card-body py-2"><h4><%= summary.total %></h4><small>Total Items</small></div></div></div>
+  <div class="col"><div class="card text-center border-success" style="cursor:pointer" onclick="applyStatusFilter('in-stock')"><div class="card-body py-2 text-success"><h4><%= summary.in_stock %></h4><small>In-Stock</small></div></div></div>
+  <div class="col"><div class="card text-center border-warning" style="cursor:pointer" onclick="applyStatusFilter('low')"><div class="card-body py-2 text-warning"><h4><%= summary.low_stock %></h4><small>Low Stock</small></div></div></div>
+  <div class="col"><div class="card text-center border-danger" style="cursor:pointer" onclick="applyStatusFilter('out')"><div class="card-body py-2 text-danger"><h4><%= summary.out_of_stock %></h4><small>Out of Stock</small></div></div></div>
+  <div class="col"><div class="card text-center border-warning" style="cursor:pointer" onclick="applyStatusFilter('expiring-soon')"><div class="card-body py-2 text-warning"><h4><%= expiringSoon %></h4><small><i class="bi bi-clock"></i> Expiring Soon</small></div></div></div>
+  <div class="col"><div class="card text-center border-danger" style="cursor:pointer" onclick="applyStatusFilter('expired')"><div class="card-body py-2 text-danger"><h4><%= expiredCount %></h4><small><i class="bi bi-exclamation-triangle"></i> Expired</small></div></div></div>
 </div>
 
 <!-- Filters -->
@@ -63,6 +65,8 @@
           <option value="in-stock" <%= query.status === 'in-stock' ? 'selected' : '' %>>In-Stock</option>
           <option value="low" <%= query.status === 'low' ? 'selected' : '' %>>Low Stock</option>
           <option value="out" <%= query.status === 'out' ? 'selected' : '' %>>Out of Stock</option>
+          <option value="expiring-soon" <%= query.status === 'expiring-soon' ? 'selected' : '' %>>⏰ Expiring Soon</option>
+          <option value="expired" <%= query.status === 'expired' ? 'selected' : '' %>>⚠️ Expired</option>
         </select>
       </div>
       <div class="col-md-2">
@@ -93,8 +97,9 @@
           <th>Value</th>
           <th>Reorder</th>
           <th>Status</th>
+          <th>Expiry</th>
           <th>Last Updated</th>
-          <th style="width:180px">Actions</th>
+          <th style="width:200px">Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -107,7 +112,9 @@
           'sale_deduction': 'Sale',
           'reorder_level_change': 'Reorder',
           'po_received': 'PO Received',
-          'import': 'Import'
+          'import': 'Import',
+          'batch_added': 'Batch Added',
+          'wastage_expired': 'Expired'
         };
         items.forEach(item => {
           const status = item.quantity <= 0 ? 'Out of Stock' : item.quantity <= item.reorder_level ? 'Low Stock' : 'In-Stock';
@@ -126,6 +133,36 @@
           <td><%= item.reorder_level %></td>
           <td><span class="badge bg-<%= statusClass %>"><%= status %></span></td>
           <td>
+            <% if (item.track_expiry) { %>
+              <% if (item.nearest_expiry) { %>
+                <% const expDate = new Date(item.nearest_expiry); const expDisplay = expDate.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}); %>
+                <% if (item.expiry_status === 'expired') { %>
+                  <span class="badge bg-danger" style="cursor:pointer" onclick="viewBatches(<%= item.id %>, '<%= item.name %>', 'expired')" title="Click to view expired batches">
+                    <i class="bi bi-exclamation-triangle"></i> Expired
+                  </span>
+                  <br><small class="text-muted" style="font-size:0.7rem">Nearest: <%= expDisplay %> (<%= item.nearest_expiry_days %>d)</small>
+                <% } else if (item.expiry_status === 'expiring-soon') { %>
+                  <span class="badge bg-warning text-dark" style="cursor:pointer" onclick="viewBatches(<%= item.id %>, '<%= item.name %>', 'expiring')" title="Click to view expiring batches">
+                    <i class="bi bi-clock"></i> Expiring Soon
+                  </span>
+                  <br><small class="text-muted" style="font-size:0.7rem">Nearest: <%= expDisplay %> (<%= item.nearest_expiry_days %>d)</small>
+                <% } else { %>
+                  <span class="badge bg-success" style="cursor:pointer" onclick="viewBatches(<%= item.id %>, '<%= item.name %>', 'all')" title="Click to view batches">
+                    <i class="bi bi-calendar-check"></i> OK
+                  </span>
+                  <br><small class="text-muted" style="font-size:0.7rem">Nearest: <%= expDisplay %> (<%= item.nearest_expiry_days %>d)</small>
+                <% } %>
+                <% if (item.has_expired_batches && item.expiry_status !== 'expired') { %>
+                  <br><small class="text-danger" style="font-size:0.65rem"><i class="bi bi-exclamation-circle"></i> Expired batch exists</small>
+                <% } %>
+              <% } else { %>
+                <span class="badge bg-info" style="cursor:pointer" onclick="viewBatches(<%= item.id %>, '<%= item.name %>', 'all')" title="No batches yet"><i class="bi bi-calendar-check"></i> Tracked</span>
+              <% } %>
+            <% } else { %>
+              <small class="text-muted">-</small>
+            <% } %>
+          </td>
+          <td>
             <small>
               <% if (item.updated_at) { 
                 const d = new Date(item.updated_at);
@@ -137,7 +174,7 @@
             </small>
           </td>
           <td>
-            <button class="btn btn-sm btn-primary" onclick='openLogModal(<%= JSON.stringify({id: item.id, name: item.name, quantity: item.quantity, unit: item.unit}) %>)' title="Quick Log">
+            <button class="btn btn-sm btn-primary" onclick='openLogModal(<%= JSON.stringify({id: item.id, name: item.name, quantity: item.quantity, unit: item.unit, track_expiry: item.track_expiry}) %>)' title="Quick Log">
               <i class="bi bi-journal-plus"></i> Log
             </button>
             <button class="btn btn-sm btn-outline-secondary" onclick="viewHistory(<%= item.id %>)" title="View History">
@@ -241,6 +278,16 @@
             <input type="text" id="addItemSupplier" class="form-control">
           </div>
         </div>
+        <div class="mb-3">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="addTrackExpiry" onchange="toggleAddExpiry()">
+            <label class="form-check-label" for="addTrackExpiry"><i class="bi bi-calendar-check"></i> Track Expiry for this item</label>
+          </div>
+        </div>
+        <div class="mb-3 d-none" id="addExpiryDateGroup">
+          <label class="form-label">Expiration Date (for initial batch)</label>
+          <input type="date" id="addExpirationDate" class="form-control">
+        </div>
         <div class="mb-2">
           <label class="form-label">Notes (optional)</label>
           <textarea id="addItemNotes" class="form-control" rows="2" placeholder="e.g., Initial batch from supplier X"></textarea>
@@ -303,6 +350,12 @@
             <input type="text" id="editItemSupplier" class="form-control">
           </div>
         </div>
+        <div class="mb-3">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="editTrackExpiry">
+            <label class="form-check-label" for="editTrackExpiry"><i class="bi bi-calendar-check"></i> Track Expiry</label>
+          </div>
+        </div>
         <p class="text-muted small"><i class="bi bi-info-circle"></i> Use "Log" to adjust quantity with proper audit trail.</p>
       </div>
       <div class="modal-footer">
@@ -346,6 +399,11 @@
             <label class="form-label">New Stock (preview)</label>
             <input type="text" id="logNewStock" class="form-control" readonly>
           </div>
+        </div>
+        <div class="mb-3 d-none" id="logExpiryDateGroup">
+          <label class="form-label">Expiration Date *</label>
+          <input type="date" id="logExpirationDate" class="form-control">
+          <small class="text-muted">Required for expiry-tracked items when restocking</small>
         </div>
         <div class="mb-3">
           <label class="form-label">Reason / Notes *</label>
@@ -495,6 +553,48 @@
           </div>
           <% }) %>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+<% } %>
+
+<!-- Batches Modal -->
+<div class="modal fade" id="batchesModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5><i class="bi bi-calendar-check"></i> Batches - <span id="batchesItemName"></span></h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex gap-2 mb-3">
+          <button class="btn btn-sm btn-outline-secondary active" onclick="loadBatches(currentBatchItemId, 'all', this)">All</button>
+          <button class="btn btn-sm btn-outline-warning" onclick="loadBatches(currentBatchItemId, 'expiring', this)">Expiring Soon</button>
+          <button class="btn btn-sm btn-outline-danger" onclick="loadBatches(currentBatchItemId, 'expired', this)">Expired</button>
+        </div>
+        <div id="batchesBody"><div class="text-center p-3"><div class="spinner-border spinner-border-sm"></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Expiry Settings (Admin) -->
+<% if (typeof currentUser !== 'undefined' && currentUser.role === 'admin') { %>
+<div class="modal fade" id="expirySettingsModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header"><h5><i class="bi bi-gear"></i> Expiry Settings</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">"Expiring Soon" Threshold (days)</label>
+          <input type="number" id="expiryThresholdDays" class="form-control" value="<%= expiryThreshold %>" min="1" max="365">
+          <small class="text-muted">Batches expiring within this many days are flagged as "Expiring Soon"</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveExpirySettings()">Save</button>
       </div>
     </div>
   </div>
@@ -688,7 +788,9 @@ async function addItem() {
     cost_per_unit: costPerUnit,
     reorder_level: document.getElementById('addItemReorder').value,
     supplier: document.getElementById('addItemSupplier').value,
-    notes: document.getElementById('addItemNotes').value
+    notes: document.getElementById('addItemNotes').value,
+    track_expiry: document.getElementById('addTrackExpiry').checked ? 1 : 0,
+    expiration_date: document.getElementById('addExpirationDate').value || null
   };
   const res = await fetch('/inventory', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const data = await res.json();
@@ -703,6 +805,7 @@ function editItem(item) {
   document.getElementById('editItemCost').value = item.cost_per_unit || 0;
   document.getElementById('editItemReorder').value = item.reorder_level;
   document.getElementById('editItemSupplier').value = item.supplier || '';
+  document.getElementById('editTrackExpiry').checked = !!item.track_expiry;
   new bootstrap.Modal(document.getElementById('editItemModal')).show();
 }
 
@@ -713,7 +816,8 @@ async function saveItem() {
     unit: document.getElementById('editItemUnit').value,
     cost_per_unit: document.getElementById('editItemCost').value,
     reorder_level: document.getElementById('editItemReorder').value,
-    supplier: document.getElementById('editItemSupplier').value
+    supplier: document.getElementById('editItemSupplier').value,
+    track_expiry: document.getElementById('editTrackExpiry').checked ? 1 : 0
   };
   const res = await fetch('/inventory/' + document.getElementById('editItemId').value, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const data = await res.json();
@@ -739,6 +843,9 @@ function openLogModal(item) {
   document.getElementById('logNewStock').value = '';
   document.getElementById('logReason').value = '';
   document.getElementById('logRestock').checked = true;
+  document.getElementById('logExpirationDate').value = '';
+  // Show expiry date field if item tracks expiry
+  toggleLogExpiry();
   new bootstrap.Modal(document.getElementById('logModal')).show();
 }
 
@@ -796,7 +903,7 @@ async function submitLog() {
   const res = await fetch('/inventory/' + currentLogItem.id + '/log', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, quantity: qty, reason })
+    body: JSON.stringify({ action, quantity: qty, reason, expiration_date: document.getElementById('logExpirationDate').value || null })
   });
   const data = await res.json();
   if (data.success) location.reload(); else alert(data.error || 'Error saving log');
@@ -818,7 +925,9 @@ async function viewHistory(id) {
       'sale_deduction': 'Sale',
       'reorder_level_change': 'Reorder Updated',
       'po_received': 'PO Received',
-      'import': 'Import'
+      'import': 'Import',
+      'batch_added': 'Batch Added',
+      'wastage_expired': 'Expired Disposed'
     };
     const actionClasses = {
       'initial': 'primary',
@@ -828,10 +937,12 @@ async function viewHistory(id) {
       'sale_deduction': 'info',
       'reorder_level_change': 'secondary',
       'po_received': 'success',
-      'import': 'secondary'
+      'import': 'secondary',
+      'batch_added': 'success',
+      'wastage_expired': 'danger'
     };
     
-    let html = '<table class="table table-sm mb-0"><thead class="table-light"><tr><th>Date</th><th>Action</th><th>Change</th><th>Before</th><th>After</th><th>Reason</th><th>By</th></tr></thead><tbody>';
+    let html = '<table class="table table-sm mb-0"><thead class="table-light"><tr><th>Date</th><th>Action</th><th>Change</th><th>Before</th><th>After</th><th>Batch</th><th>Reason</th><th>By</th></tr></thead><tbody>';
     if (data.logs && data.logs.length > 0) {
       data.logs.forEach(log => {
         const d = new Date(log.created_at);
@@ -839,13 +950,15 @@ async function viewHistory(id) {
         const changeClass = log.quantity_change > 0 ? 'text-success' : log.quantity_change < 0 ? 'text-danger' : 'text-muted';
         const actionLabel = actionLabels[log.action] || log.action;
         const actionClass = actionClasses[log.action] || 'secondary';
+        const batchDisplay = log.batch_id ? '<small class="fw-bold text-primary">#' + log.batch_id + '</small>' : '<small class="text-muted">-</small>';
         html += '<tr><td><small>' + shortDate + '</small></td><td><span class="badge bg-' + actionClass + '">' + actionLabel + '</span></td>';
         html += '<td class="' + changeClass + '">' + (log.quantity_change > 0 ? '+' : '') + log.quantity_change.toFixed(2) + '</td>';
         html += '<td>' + log.quantity_before.toFixed(2) + '</td><td>' + log.quantity_after.toFixed(2) + '</td>';
+        html += '<td>' + batchDisplay + '</td>';
         html += '<td><small>' + (log.reason || '-') + '</small></td><td><small>' + (log.user_name || '-') + '</small></td></tr>';
       });
     } else {
-      html += '<tr><td colspan="7" class="text-center text-muted py-3">No history found</td></tr>';
+      html += '<tr><td colspan="8" class="text-center text-muted py-3">No history found</td></tr>';
     }
     html += '</tbody></table>';
     document.getElementById('historyBody').innerHTML = html;
@@ -896,5 +1009,136 @@ document.addEventListener('DOMContentLoaded', function() {
       setTimeout(() => openLogModal(item), 300);
     }
   }
+  if (itemId && action === 'batches') {
+    // Open batches modal for this item
+    const items = <%- JSON.stringify(items || []) %>;
+    const item = items.find(i => i.id === parseInt(itemId));
+    if (item) {
+      setTimeout(() => viewBatches(item.id, item.name, 'all'), 300);
+    }
+  }
 });
+
+// ============ EXPIRY TRACKING HELPERS ============
+function toggleAddExpiry() {
+  const checked = document.getElementById('addTrackExpiry').checked;
+  document.getElementById('addExpiryDateGroup').classList.toggle('d-none', !checked);
+}
+
+function toggleLogExpiry() {
+  if (!currentLogItem) return;
+  const action = document.querySelector('input[name="logAction"]:checked').value;
+  const show = currentLogItem.track_expiry && action === 'restock';
+  document.getElementById('logExpiryDateGroup').classList.toggle('d-none', !show);
+}
+
+// Update toggleLogExpiry when action changes
+document.querySelectorAll('input[name="logAction"]').forEach(radio => {
+  radio.addEventListener('change', () => { updateLogPreview(); toggleLogExpiry(); });
+});
+
+// ============ BATCH MANAGEMENT ============
+let currentBatchItemId = null;
+
+async function viewBatches(itemId, itemName, filter) {
+  currentBatchItemId = itemId;
+  document.getElementById('batchesItemName').textContent = itemName;
+  document.getElementById('batchesBody').innerHTML = '<div class="text-center p-3"><div class="spinner-border spinner-border-sm"></div></div>';
+  new bootstrap.Modal(document.getElementById('batchesModal')).show();
+  const f = filter || 'all';
+  loadBatches(itemId, f);
+  // Highlight the matching filter button
+  const btns = document.querySelectorAll('#batchesModal .d-flex.gap-2 .btn');
+  btns.forEach(b => {
+    b.classList.remove('active');
+    if (f === 'all' && b.textContent.trim() === 'All') b.classList.add('active');
+    else if (f === 'expiring' && b.textContent.trim() === 'Expiring Soon') b.classList.add('active');
+    else if (f === 'expired' && b.textContent.trim() === 'Expired') b.classList.add('active');
+  });
+}
+
+// Apply status filter from KPI card click
+function applyStatusFilter(status) {
+  const url = new URL(window.location);
+  url.searchParams.set('status', status);
+  window.location.href = url.toString();
+}
+
+async function loadBatches(itemId, filter, btn) {
+  if (btn) {
+    btn.closest('.d-flex').querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  try {
+    const res = await fetch('/inventory/' + itemId + '/batches?filter=' + filter);
+    const data = await res.json();
+    
+    if (!data.batches || data.batches.length === 0) {
+      document.getElementById('batchesBody').innerHTML = '<div class="text-center text-muted py-4"><i class="bi bi-inbox"></i> No batches found</div>';
+      return;
+    }
+    
+    let html = '<table class="table table-sm table-hover mb-0"><thead class="table-light"><tr><th>Batch #</th><th>Qty</th><th>Expiration</th><th>Days Left</th><th>Status</th><th>Source</th><th>Received</th><th>Action</th></tr></thead><tbody>';
+    data.batches.forEach(b => {
+      const statusClass = b.status === 'Expired' ? 'danger' : b.status === 'Expiring Soon' ? 'warning' : 'success';
+      const expDate = new Date(b.expiration_date).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+      const recDate = b.received_date ? new Date(b.received_date).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '-';
+      html += '<tr' + (b.status === 'Expired' ? ' class="table-danger"' : b.status === 'Expiring Soon' ? ' class="table-warning"' : '') + '>';
+      html += '<td>#' + b.id + '</td>';
+      html += '<td>' + b.quantity.toFixed(2) + ' ' + (b.unit || '') + '</td>';
+      html += '<td>' + expDate + '</td>';
+      html += '<td>' + (b.days_left <= 0 ? '<span class="text-danger fw-bold">' + b.days_left + 'd</span>' : b.days_left + 'd') + '</td>';
+      html += '<td><span class="badge bg-' + statusClass + '">' + b.status + '</span></td>';
+      html += '<td><small>' + (b.source || '-') + (b.reference_id ? ' (' + b.reference_id + ')' : '') + '</small></td>';
+      html += '<td><small>' + recDate + '</small></td>';
+      html += '<td>';
+      if (b.status === 'Expired') {
+        html += '<button class="btn btn-sm btn-danger" onclick="disposeBatch(' + itemId + ',' + b.id + ',' + b.quantity.toFixed(2) + ')"><i class="bi bi-trash"></i> Dispose</button>';
+      } else {
+        html += '<button class="btn btn-sm btn-outline-danger" onclick="disposeBatch(' + itemId + ',' + b.id + ',' + b.quantity.toFixed(2) + ')"><i class="bi bi-trash"></i></button>';
+      }
+      html += '</td></tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('batchesBody').innerHTML = html;
+  } catch (err) {
+    document.getElementById('batchesBody').innerHTML = '<div class="text-center text-danger py-3">Error loading batches</div>';
+  }
+}
+
+async function disposeBatch(itemId, batchId, qty) {
+  const reason = prompt('Reason for disposing batch #' + batchId + ' (' + qty + ' units)?', 'Expired - disposed');
+  if (reason === null) return;
+  try {
+    const res = await fetch('/inventory/' + itemId + '/batches/' + batchId + '/dispose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason })
+    });
+    const data = await res.json();
+    if (data.success) {
+      alert('Batch disposed. ' + data.removed + ' units removed from inventory.');
+      loadBatches(itemId, 'all');
+      // Reload page after closing modal to update totals
+      document.getElementById('batchesModal').addEventListener('hidden.bs.modal', () => location.reload(), { once: true });
+    } else {
+      alert(data.error || 'Error disposing batch');
+    }
+  } catch (err) {
+    alert('Error disposing batch');
+  }
+}
+
+async function saveExpirySettings() {
+  const days = parseInt(document.getElementById('expiryThresholdDays').value);
+  if (!days || days < 1) { alert('Please enter a valid number of days'); return; }
+  const res = await fetch('/inventory/expiry/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ threshold_days: days })
+  });
+  const data = await res.json();
+  if (data.success) { alert('Expiry threshold updated to ' + days + ' days'); location.reload(); }
+  else alert(data.error || 'Error saving settings');
+}
 </script>

@@ -115,6 +115,7 @@
           <th class="text-end">Change</th>
           <th class="text-end">Before</th>
           <th class="text-end">After</th>
+          <th>Batch</th>
           <th>Reason</th>
           <th>Reference</th>
           <th>By</th>
@@ -122,18 +123,20 @@
       </thead>
       <tbody>
         <% if (logs.length === 0) { %>
-        <tr><td colspan="10" class="text-center text-muted py-4">No audit log entries found</td></tr>
+        <tr><td colspan="11" class="text-center text-muted py-4">No audit log entries found</td></tr>
         <% } %>
         <% 
         const actionLabels = {
           'initial': 'Initial Stock', 'restock': 'Restock', 'wastage': 'Wastage',
           'adjustment': 'Correction', 'sale_deduction': 'POS Sale', 'import': 'Import',
-          'po_received': 'PO Received', 'po_cancelled': 'PO Cancelled', 'platform_sale': 'Platform Sale'
+          'po_received': 'PO Received', 'po_cancelled': 'PO Cancelled', 'platform_sale': 'Platform Sale',
+          'batch_added': 'Batch Added', 'wastage_expired': 'Expired Disposed'
         };
         const actionClasses = {
           'initial': 'primary', 'restock': 'success', 'wastage': 'danger',
           'adjustment': 'warning', 'sale_deduction': 'info', 'import': 'secondary',
-          'po_received': 'success', 'po_cancelled': 'danger', 'platform_sale': 'info'
+          'po_received': 'success', 'po_cancelled': 'danger', 'platform_sale': 'info',
+          'batch_added': 'success', 'wastage_expired': 'danger'
         };
         const sourceClasses = {
           'POS': 'primary', 'Inventory': 'secondary', 'Purchase Orders': 'success', 'Import': 'info', 'System': 'dark'
@@ -164,6 +167,21 @@
             </td>
             <td class="text-end"><%= log.quantity_before.toFixed(2) %></td>
             <td class="text-end"><%= log.quantity_after.toFixed(2) %></td>
+            <td>
+              <% if (log.batch_id) { %>
+                <a href="/inventory?item=<%= log.inventory_item_id %>&action=batches" class="text-decoration-none" title="View batch details">
+                  <small class="fw-bold">#<%= log.batch_id %></small>
+                </a>
+                <% 
+                  // Extract expiry date from reason if present (format: "exp Mon DD, YYYY")
+                  const expMatch = (log.reason || '').match(/exp\s+(.+?)$/); 
+                  if (expMatch) { %>
+                  <br><small class="text-muted" style="font-size:0.65rem"><i class="bi bi-calendar"></i> <%= expMatch[1] %></small>
+                <% } %>
+              <% } else { %>
+                <small class="text-muted">-</small>
+              <% } %>
+            </td>
             <td><small><%= log.reason || '-' %></small></td>
             <td>
               <% if (log.reference_id) { %>

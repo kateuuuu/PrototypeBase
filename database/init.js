@@ -116,7 +116,7 @@ function initializeDatabase() {
   db.exec(`CREATE TABLE IF NOT EXISTS inventory_audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     inventory_item_id INTEGER NOT NULL,
-    action TEXT NOT NULL CHECK(action IN ('sale_deduction','restock','adjustment','wastage','initial','import','po_received','po_cancelled','platform_sale')),
+    action TEXT NOT NULL CHECK(action IN ('sale_deduction','restock','adjustment','wastage','initial','import','po_received','po_cancelled','platform_sale','batch_added','wastage_expired','reorder_level_change')),
     quantity_change REAL NOT NULL,
     quantity_before REAL NOT NULL,
     quantity_after REAL NOT NULL,
@@ -199,9 +199,28 @@ function initializeDatabase() {
     synced_at TEXT
   )`);
 
+  // Password reset tokens table (prototype - stored locally)
+  db.exec(`CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token TEXT UNIQUE NOT NULL,
+    expires_at TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )`);
+
   // Migrations for existing databases
   try { db.exec("ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT NULL"); } catch(e) {}
   try { db.exec("ALTER TABLE users ADD COLUMN contact_number TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN email TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN display_name TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN last_login TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN last_password_change TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN last_failed_login TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN failed_login_count INTEGER NOT NULL DEFAULT 0"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN enable_2fa INTEGER NOT NULL DEFAULT 0"); } catch(e) {}
   try { db.exec("ALTER TABLE recipes ADD COLUMN recipe_unit TEXT DEFAULT NULL"); } catch(e) {}
   try { db.exec("ALTER TABLE orders ADD COLUMN discount_type TEXT DEFAULT 'none'"); } catch(e) {}
   try { db.exec("ALTER TABLE purchase_orders ADD COLUMN received_by INTEGER"); } catch(e) {}
@@ -255,6 +274,137 @@ function initializeDatabase() {
   try { db.exec("ALTER TABLE expenses ADD COLUMN vendor_supplier TEXT"); } catch(e) {}
   try { db.exec("ALTER TABLE expenses ADD COLUMN payment_method TEXT DEFAULT 'Cash'"); } catch(e) {}
   try { db.exec("ALTER TABLE expenses ADD COLUMN receipt_file TEXT"); } catch(e) {}
+
+  // ========== EXPIRY TRACKING ==========
+  // Add track_expiry column to inventory_items
+  try { db.exec("ALTER TABLE inventory_items ADD COLUMN track_expiry INTEGER NOT NULL DEFAULT 0"); } catch(e) {}
+  // Add batch_id column to audit log for batch-level tracking
+  try { db.exec("ALTER TABLE inventory_audit_log ADD COLUMN batch_id INTEGER"); } catch(e) {}
+
+  // Migrate audit log CHECK constraint to include batch_added, wastage_expired
+  try {
+    db.exec("INSERT INTO inventory_audit_log (inventory_item_id, action, quantity_change, quantity_before, quantity_after) VALUES (0, 'batch_added', 0, 0, 0)");
+    db.exec("DELETE FROM inventory_audit_log WHERE inventory_item_id = 0 AND action = 'batch_added'");
+  } catch(e) {
+    // Old CHECK constraint - recreate the table
+    const existingLogs = db.prepare('SELECT * FROM inventory_audit_log').all();
+    db.exec('DROP TABLE inventory_audit_log');
+    db.exec(`CREATE TABLE inventory_audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      inventory_item_id INTEGER NOT NULL,
+      action TEXT NOT NULL CHECK(action IN ('sale_deduction','restock','adjustment','wastage','initial','import','po_received','po_cancelled','platform_sale','batch_added','wastage_expired','reorder_level_change')),
+      quantity_change REAL NOT NULL,
+      quantity_before REAL NOT NULL,
+      quantity_after REAL NOT NULL,
+      reason TEXT,
+      reference_id TEXT,
+      source TEXT DEFAULT 'Inventory',
+      cost_before REAL,
+      cost_after REAL,
+      cost_method TEXT,
+      batch_id INTEGER,
+      user_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )`);
+    // Restore any existing logs
+    if (existingLogs.length > 0) {
+      const ins = db.prepare('INSERT INTO inventory_audit_log (inventory_item_id, action, quantity_change, quantity_before, quantity_after, reason, reference_id, source, cost_before, cost_after, cost_method, batch_id, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const l of existingLogs) {
+        try { ins.run(l.inventory_item_id, l.action, l.quantity_change, l.quantity_before, l.quantity_after, l.reason, l.reference_id, l.source, l.cost_before, l.cost_after, l.cost_method, l.batch_id, l.user_id, l.created_at); } catch(e2) {}
+      }
+    }
+  }
+
+  // Inventory batches table
+  db.exec(`CREATE TABLE IF NOT EXISTS inventory_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    inventory_item_id INTEGER NOT NULL,
+    quantity REAL NOT NULL DEFAULT 0,
+    unit TEXT NOT NULL DEFAULT 'pcs',
+    expiration_date TEXT NOT NULL,
+    received_date TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    received_by INTEGER,
+    source TEXT NOT NULL DEFAULT 'Manual Restock' CHECK(source IN ('Manual Restock','PO Received')),
+    reference_id TEXT,
+    is_disposed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id),
+    FOREIGN KEY (received_by) REFERENCES users(id)
+  )`);
+
+  // System settings table for expiry threshold etc.
+  db.exec(`CREATE TABLE IF NOT EXISTS system_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`);
+  // Seed default expiry threshold
+  try { db.prepare("INSERT OR IGNORE INTO system_settings (key, value) VALUES ('expiry_threshold_days', '7')").run(); } catch(e) {}
+
+  // ========== VARIANTS & SIZES SUPPORT ==========
+  // Menu item variants table (sizes like 16oz, 22oz, 12oz)
+  db.exec(`CREATE TABLE IF NOT EXISTS menu_item_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    menu_item_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    price REAL NOT NULL,
+    is_available INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY (menu_item_id) REFERENCES menu_items(id) ON DELETE CASCADE
+  )`);
+
+  // Variant-specific recipes (each variant can have different ingredient quantities)
+  db.exec(`CREATE TABLE IF NOT EXISTS variant_recipes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    variant_id INTEGER NOT NULL,
+    inventory_item_id INTEGER NOT NULL,
+    quantity_needed REAL NOT NULL,
+    recipe_unit TEXT DEFAULT NULL,
+    FOREIGN KEY (variant_id) REFERENCES menu_item_variants(id) ON DELETE CASCADE,
+    FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id)
+  )`);
+
+  // Menu item add-ons (optional modifiers that add price and optionally ingredients)
+  db.exec(`CREATE TABLE IF NOT EXISTS menu_item_addons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    price REAL NOT NULL DEFAULT 0,
+    category_id INTEGER,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY (category_id) REFERENCES categories(id)
+  )`);
+
+  // Add-on ingredient deductions (optional)
+  db.exec(`CREATE TABLE IF NOT EXISTS addon_recipes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    addon_id INTEGER NOT NULL,
+    inventory_item_id INTEGER NOT NULL,
+    quantity_needed REAL NOT NULL,
+    recipe_unit TEXT DEFAULT NULL,
+    FOREIGN KEY (addon_id) REFERENCES menu_item_addons(id) ON DELETE CASCADE,
+    FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id)
+  )`);
+
+  // Order item add-ons (tracks which add-ons were selected for each order line)
+  db.exec(`CREATE TABLE IF NOT EXISTS order_item_addons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_item_id INTEGER NOT NULL,
+    addon_id INTEGER NOT NULL,
+    addon_name TEXT NOT NULL,
+    addon_price REAL NOT NULL,
+    FOREIGN KEY (order_item_id) REFERENCES order_items(id) ON DELETE CASCADE,
+    FOREIGN KEY (addon_id) REFERENCES menu_item_addons(id)
+  )`);
+
+  // Add variant_id column to order_items for tracking which size was ordered
+  try { db.exec("ALTER TABLE order_items ADD COLUMN variant_id INTEGER"); } catch(e) {}
+  try { db.exec("ALTER TABLE order_items ADD COLUMN variant_name TEXT"); } catch(e) {}
+
+  // Add has_variants flag to menu_items to indicate if item uses variant pricing
+  try { db.exec("ALTER TABLE menu_items ADD COLUMN has_variants INTEGER NOT NULL DEFAULT 0"); } catch(e) {}
 
   // Seed admin
   const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
